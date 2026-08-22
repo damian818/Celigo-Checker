@@ -1,0 +1,6 @@
+{
+  "name": "Celigo Integrations Error Analyzer & Remediation Hub",
+  "description": "Real-time error analysis and automated remediation platform for Celigo integrator.io integrations. Features non-technical error translations, Celigo MCP & CLI diagnostics, Jira incident ticketing, Google Chat & Gmail notifications, and an AI IT support chatbot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
