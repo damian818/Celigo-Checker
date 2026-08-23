@@ -242,7 +242,16 @@ export default function App() {
       showToast('Successfully authenticated with Google Workspace', 'success');
     } catch (error: any) {
       console.error('Login error', error);
-      showToast(`Login failed: ${error.message}`, 'error');
+      if (error.code === 'auth/unauthorized-domain') {
+        showToast(
+          `Domain not authorized in Firebase: Please add "${window.location.hostname}" to Firebase Console -> Authentication -> Settings -> Authorized domains`,
+          'error'
+        );
+      } else if (error.code === 'auth/popup-blocked') {
+        showToast('OAuth popup was blocked by browser. Please allow popups for this domain and try again.', 'error');
+      } else {
+        showToast(`Login failed: ${error.message}`, 'error');
+      }
     } finally {
       setIsLoggingIn(false);
     }

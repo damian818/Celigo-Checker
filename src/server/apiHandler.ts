@@ -3,6 +3,16 @@ import { analyzeCeligoErrorWithGemini, chatWithCeligoCopilot } from './geminiSer
 
 export const apiRouter = express.Router();
 
+apiRouter.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-celigo-prod-token, x-celigo-sandbox-token, x-celigo-stack');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 apiRouter.use(express.json());
 
 /**
