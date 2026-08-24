@@ -125,6 +125,14 @@ export default function App() {
   });
   const [notifyOnHealthySync, setNotifyOnHealthySync] = useState<boolean>(() => {
     const saved = localStorage.getItem('celigo_notify_healthy');
+    return saved !== null ? saved === 'true' : false;
+  });
+  const [notifyOnError, setNotifyOnError] = useState<boolean>(() => {
+    const saved = localStorage.getItem('celigo_notify_error');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('celigo_sound_enabled');
     return saved !== null ? saved === 'true' : true;
   });
 
@@ -168,7 +176,31 @@ export default function App() {
       if (user?.uid) {
         saveUserSettings(user.uid, { notifyOnHealthySync: next }).catch(console.error);
       }
-      showToast(next ? '✓ Healthy sync notifications enabled (alerts on 0 errors).' : 'Healthy sync notifications disabled.', 'info');
+      showToast(next ? '✓ Healthy sync notifications enabled.' : 'Healthy sync notifications disabled.', 'info');
+      return next;
+    });
+  };
+
+  const handleToggleNotifyOnError = () => {
+    setNotifyOnError(prev => {
+      const next = !prev;
+      localStorage.setItem('celigo_notify_error', String(next));
+      if (user?.uid) {
+        saveUserSettings(user.uid, { notifyOnError: next }).catch(console.error);
+      }
+      showToast(next ? '✓ Error notifications enabled.' : 'Error notifications disabled.', 'info');
+      return next;
+    });
+  };
+
+  const handleToggleSoundEnabled = () => {
+    setSoundEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem('celigo_sound_enabled', String(next));
+      if (user?.uid) {
+        saveUserSettings(user.uid, { soundEnabled: next }).catch(console.error);
+      }
+      showToast(next ? '✓ Notification sounds enabled.' : 'Notification sounds disabled.', 'info');
       return next;
     });
   };
@@ -275,18 +307,25 @@ export default function App() {
 
           prevErrorIdsRef.current = currentErrorIds;
 
-          if (!isInitialSyncRef.current && newlyDiscoveredErrors.length > 0) {
-            const affectedFlows = Array.from(new Set(newlyDiscoveredErrors.map(e => e.flowName || 'Integration Flow')));
-            // Play alert sound
-            NotificationService.playAlertChime();
-            // Dispatch browser OS notification
-            NotificationService.notifyNewErrors(newlyDiscoveredErrors.length, affectedFlows);
-            // In-app alert
-            showToast(`⚠️ ${newlyDiscoveredErrors.length} new Celigo integration error(s) detected during sync!`, 'error');
-          } else if (!isInitialSyncRef.current && fetchedErrors.length === 0 && notifyOnHealthySync) {
-            // Trigger healthy sync notification if user wants to be notified even when 0 errors are found
-            NotificationService.playAlertChime();
-            NotificationService.notifyHealthySync(fetchedFlows.length, fetchedIntegrations.length);
+          if (!isInitialSyncRef.current) {
+            const unresolvedCount = enrichedErrors.filter((e: any) => e.status === 'unresolved').length;
+            
+            if (unresolvedCount > 0 && notifyOnError) {
+              const affectedFlows = Array.from(new Set(newlyDiscoveredErrors.length > 0 
+                ? newlyDiscoveredErrors.map(e => e.flowName || 'Integration Flow')
+                : enrichedErrors.filter((e: any) => e.status === 'unresolved').map((e: any) => e.flowName || 'Integration Flow')
+              ));
+              
+              if (soundEnabled) NotificationService.playAlertChime();
+              NotificationService.notifyErrors(unresolvedCount, newlyDiscoveredErrors.length, affectedFlows);
+              
+              if (newlyDiscoveredErrors.length > 0) {
+                showToast(`⚠️ ${newlyDiscoveredErrors.length} new Celigo integration error(s) detected during sync!`, 'error');
+              }
+            } else if (unresolvedCount === 0 && notifyOnHealthySync) {
+              if (soundEnabled) NotificationService.playAlertChime();
+              NotificationService.notifyHealthySync(fetchedFlows.length, fetchedIntegrations.length);
+            }
           }
 
           isInitialSyncRef.current = false;
@@ -972,9 +1011,13 @@ export default function App() {
         nextSyncCountdown={formatCountdown(nextSyncSecondsRemaining)}
         notificationsEnabled={notificationsEnabled}
         notifyOnHealthySync={notifyOnHealthySync}
+        notifyOnError={notifyOnError}
+        soundEnabled={soundEnabled}
         onRequestNotificationPermission={handleRequestNotificationPermission}
         onTestNotification={handleTestNotification}
         onToggleNotifyOnHealthySync={handleToggleNotifyOnHealthySync}
+        onToggleNotifyOnError={handleToggleNotifyOnError}
+        onToggleSoundEnabled={handleToggleSoundEnabled}
         onChangeAutoSyncInterval={handleChangeAutoSyncInterval}
       />
 

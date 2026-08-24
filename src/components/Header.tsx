@@ -47,9 +47,13 @@ interface HeaderProps {
   nextSyncCountdown?: string;
   notificationsEnabled?: boolean;
   notifyOnHealthySync?: boolean;
+  notifyOnError?: boolean;
+  soundEnabled?: boolean;
   onRequestNotificationPermission?: () => void;
   onTestNotification?: () => void;
   onToggleNotifyOnHealthySync?: () => void;
+  onToggleNotifyOnError?: () => void;
+  onToggleSoundEnabled?: () => void;
   onChangeAutoSyncInterval?: (minutes: number) => void;
 }
 
@@ -77,13 +81,26 @@ export const Header: React.FC<HeaderProps> = ({
   nextSyncCountdown = '',
   notificationsEnabled = false,
   notifyOnHealthySync = true,
+  notifyOnError = true,
+  soundEnabled = true,
   onRequestNotificationPermission,
   onTestNotification,
   onToggleNotifyOnHealthySync,
+  onToggleNotifyOnError,
+  onToggleSoundEnabled,
   onChangeAutoSyncInterval
 }) => {
   const [showSyncIntervalMenu, setShowSyncIntervalMenu] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
+  
+  // Check if we are running inside an iframe (like AI Studio)
+  const isInIframe = (function() {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  })();
 
   return (
     <header className="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-40 shadow-md">
@@ -205,6 +222,22 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
+                {/* Error Sync Notification Toggle */}
+                <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={notifyOnError}
+                    onChange={() => onToggleNotifyOnError?.()}
+                    className="mt-0.5 rounded border-slate-700 bg-slate-950 text-sky-500 focus:ring-0 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-medium text-slate-200 block text-[11px]">Notify on Error Syncs</span>
+                    <span className="text-[10px] text-slate-400 block leading-snug">
+                      Alert when unresolved errors are found
+                    </span>
+                  </div>
+                </label>
+
                 {/* Healthy Sync Notification Toggle */}
                 <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer select-none">
                   <input
@@ -216,19 +249,48 @@ export const Header: React.FC<HeaderProps> = ({
                   <div>
                     <span className="font-medium text-slate-200 block text-[11px]">Notify on Healthy Syncs</span>
                     <span className="text-[10px] text-slate-400 block leading-snug">
-                      Receive an alert when sync finishes even if 0 errors are found
+                      Alert when sync finishes with 0 errors
+                    </span>
+                  </div>
+                </label>
+                
+                {/* Sound Effect Toggle */}
+                <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={soundEnabled}
+                    onChange={() => onToggleSoundEnabled?.()}
+                    className="mt-0.5 rounded border-slate-700 bg-slate-950 text-sky-500 focus:ring-0 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-medium text-slate-200 block text-[11px]">Play Notification Chime</span>
+                    <span className="text-[10px] text-slate-400 block leading-snug">
+                      Audio alert when notifications trigger
                     </span>
                   </div>
                 </label>
 
-                {/* Test Notification Trigger */}
-                <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                <div className="pt-2 border-t border-slate-800 space-y-2">
+                  {/* Iframe detection fallback */}
+                  {isInIframe && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.open(window.location.href, '_blank', 'noopener,noreferrer');
+                      }}
+                      className="w-full py-1.5 px-2 rounded-lg bg-sky-900/40 hover:bg-sky-800/60 text-sky-300 text-[11px] font-medium border border-sky-800 flex items-center justify-center gap-1.5 transition cursor-pointer mb-1"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Open in Desktop Tab
+                    </button>
+                  )}
+                
+                  {/* Test Notification Trigger */}
                   <button
                     type="button"
                     onClick={() => {
                       onTestNotification?.();
                     }}
-                    className="w-full py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] font-medium border border-slate-700 flex items-center justify-center gap-1 transition cursor-pointer"
+                    className="w-full py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium border border-slate-700 flex items-center justify-center gap-1 transition cursor-pointer"
                   >
                     🔔 Test Alert & Chime
                   </button>

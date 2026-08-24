@@ -16,6 +16,8 @@ export interface UserSettings {
   gmailBodyTemplate?: string;
   autoSyncIntervalMinutes?: number;
   notifyOnHealthySync?: boolean;
+  notifyOnError?: boolean;
+  soundEnabled?: boolean;
   lastSyncTimestamp?: number;
   updatedAt?: string;
 }
@@ -141,6 +143,8 @@ export async function saveUserSettings(userId: string, settings: Partial<UserSet
     if (settings.gmailBodyTemplate !== undefined) payload.gmailBodyTemplate = settings.gmailBodyTemplate;
     if (settings.autoSyncIntervalMinutes !== undefined) payload.autoSyncIntervalMinutes = settings.autoSyncIntervalMinutes;
     if (settings.notifyOnHealthySync !== undefined) payload.notifyOnHealthySync = settings.notifyOnHealthySync;
+    if (settings.notifyOnError !== undefined) payload.notifyOnError = settings.notifyOnError;
+    if (settings.soundEnabled !== undefined) payload.soundEnabled = settings.soundEnabled;
     if (settings.lastSyncTimestamp !== undefined) payload.lastSyncTimestamp = settings.lastSyncTimestamp;
 
     await setDoc(doc(db, 'user_settings', userId), payload, { merge: true });

@@ -4,20 +4,50 @@ export class NotificationService {
   private static audioCtx: AudioContext | null = null;
 
   /**
-   * Request browser notification permission
+   * Check if the application is currently running inside an iframe (e.g. AI Studio preview container)
+   */
+  public static isInIframe(): boolean {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Open the app in a standalone, dedicated browser tab for 100% unrestricted native OS desktop/mobile notifications
+   */
+  public static openInDedicatedTab(): void {
+    window.open(window.location.href, '_blank', 'noopener,noreferrer');
+  }
+
+  /**
+   * Request native browser OS notification permission (supports Promisified and Callback Safari implementations)
    */
   public static async requestPermission(): Promise<NotificationPermission> {
     if (!('Notification' in window)) {
-      console.warn('This browser does not support desktop notification');
+      console.warn('This browser does not support desktop notifications.');
       return 'denied';
     }
-    try {
-      const permission = await Notification.requestPermission();
-      return permission;
-    } catch (e) {
-      console.error('Error requesting notification permission:', e);
-      return 'denied';
+
+    if (Notification.permission === 'granted') {
+      return 'granted';
     }
+
+    return new Promise((resolve) => {
+      try {
+        const res = Notification.requestPermission((p) => resolve(p));
+        if (res && typeof (res as any).then === 'function') {
+          (res as any).then(resolve).catch((err: any) => {
+            console.warn('Notification permission promise rejected:', err);
+            resolve('denied');
+          });
+        }
+      } catch (e) {
+        console.error('Error requesting notification permission:', e);
+        resolve('denied');
+      }
+    });
   }
 
   /**
@@ -29,18 +59,22 @@ export class NotificationService {
   }
 
   /**
-   * Dispatch a native OS desktop notification for newly discovered or unresolved errors
+   * Dispatch a native OS desktop / mobile notification for errors discovered during sync
    */
-  public static notifyNewErrors(count: number, flowNames: string[] = []): void {
+  public static notifyErrors(totalCount: number, newCount = 0, flowNames: string[] = []): void {
     if (!('Notification' in window) || Notification.permission !== 'granted') {
       return;
     }
 
     const flowSummary = flowNames.slice(0, 2).join(', ') + (flowNames.length > 2 ? ` and ${flowNames.length - 2} more` : '');
-    const title = `⚠️ ${count} Celigo Integration Error${count > 1 ? 's' : ''} Detected`;
+    const isNew = newCount > 0;
+    const title = isNew
+      ? `⚠️ ${newCount} New Celigo Integration Error${newCount > 1 ? 's' : ''} Detected`
+      : `⚠️ ${totalCount} Unresolved Celigo Error${totalCount > 1 ? 's' : ''} in Queue`;
+
     const body = flowNames.length > 0 
       ? `Flows affected: ${flowSummary}. Open Gappify Remediation Hub to inspect & auto-heal.`
-      : `${count} unresolved error(s) flagged in Celigo. Click to view and remediate.`;
+      : `${totalCount} unresolved error(s) flagged in Celigo. Click to view and remediate.`;
 
     this.dispatchNotification(title, body, 'celigo-error-alert');
   }
@@ -67,8 +101,8 @@ export class NotificationService {
     if (permission === 'granted') {
       this.playAlertChime();
       this.dispatchNotification(
-        '🔔 Test Alert: Gappify Celigo Remediation Hub',
-        'Desktop notifications & audio alerts are active! You will receive live sync alerts.',
+        '🔔 Desktop Alert: Gappify Celigo Remediation Hub',
+        'Native OS notifications & audio alerts are active! You will receive live sync alerts.',
         'test-notification'
       );
       return true;
@@ -77,25 +111,26 @@ export class NotificationService {
   }
 
   /**
-   * Centralized safe notification dispatcher (Service Worker + Window fallback)
+   * Centralized safe notification dispatcher (Service Worker for Mobile/PWA + Window Notification for Desktop)
    */
   private static dispatchNotification(title: string, body: string, tag: string): void {
     try {
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      // First try Service Worker registration (critical for Android, macOS PWA, Windows PWA)
+      if ('serviceWorker' in navigator) {
         navigator.serviceWorker.ready
           .then((reg) => {
-            reg.showNotification(title, {
+            return reg.showNotification(title, {
               body,
               icon: '/favicon-32x32.png',
               badge: '/favicon-16x16.png',
-              tag,
+              tag: tag || 'celigo-alert',
               renotify: true,
+              vibrate: [200, 100, 200],
               data: { url: '/?tab=errors' }
-            } as any).catch(() => {
-              this.createWindowNotification(title, body, tag);
-            });
+            } as any);
           })
-          .catch(() => {
+          .catch((swErr) => {
+            console.warn('Service worker showNotification failed, attempting Window fallback:', swErr);
             this.createWindowNotification(title, body, tag);
           });
       } else {
@@ -113,14 +148,14 @@ export class NotificationService {
       const n = new Notification(title, {
         body,
         icon: '/favicon-32x32.png',
-        tag,
+        tag: tag || 'celigo-alert',
       });
       n.onclick = () => {
         window.focus();
         n.close();
       };
     } catch (err) {
-      console.warn('Native Window Notification failed:', err);
+      console.warn('Native Window Notification constructor failed:', err);
     }
   }
 
@@ -137,7 +172,7 @@ export class NotificationService {
       }
 
       if (this.audioCtx.state === 'suspended') {
-        this.audioCtx.resume();
+        this.audioCtx.resume().catch(() => {});
       }
 
       const now = this.audioCtx.currentTime;
