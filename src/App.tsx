@@ -45,49 +45,10 @@ import {
   formatErrorSummary,
 } from './utils/errorSummaryFormatter';
 
-interface LocalResolvedCache {
-  resolvedFlowIds: Record<string, number>;
-  resolvedErrorIds: Record<string, number>;
-}
-
-const LOCAL_RESOLVED_KEY = 'celigo_resolved_cache_v1';
-
-function getLocalResolvedCache(): LocalResolvedCache {
-  try {
-    const raw = localStorage.getItem(LOCAL_RESOLVED_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const now = Date.now();
-      const maxAge = 24 * 60 * 60 * 1000;
-      const resolvedFlowIds: Record<string, number> = {};
-      const resolvedErrorIds: Record<string, number> = {};
-      Object.entries(parsed.resolvedFlowIds || {}).forEach(([k, v]) => {
-        if (now - (v as number) < maxAge) resolvedFlowIds[k] = v as number;
-      });
-      Object.entries(parsed.resolvedErrorIds || {}).forEach(([k, v]) => {
-        if (now - (v as number) < maxAge) resolvedErrorIds[k] = v as number;
-      });
-      return { resolvedFlowIds, resolvedErrorIds };
-    }
-  } catch {}
-  return { resolvedFlowIds: {}, resolvedErrorIds: {} };
-}
-
-function saveToLocalResolvedCache(flowId?: string, errorIds?: string[]) {
-  try {
-    const current = getLocalResolvedCache();
-    const now = Date.now();
-    if (flowId) {
-      current.resolvedFlowIds[flowId] = now;
-    }
-    if (errorIds) {
-      errorIds.forEach(id => {
-        if (id) current.resolvedErrorIds[id] = now;
-      });
-    }
-    localStorage.setItem(LOCAL_RESOLVED_KEY, JSON.stringify(current));
-  } catch {}
-}
+// Clean up any legacy suppression cache on module load to guarantee live accuracy
+try {
+  localStorage.removeItem('celigo_resolved_cache_v1');
+} catch {}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -234,31 +195,15 @@ export default function App() {
         const fetchedFlows = liveFlowsRes.flows || [];
         const fetchedIntegrations = liveFlowsRes.integrations || [];
         const fetchedErrors = liveErrorsRes.errors || [];
-        const resolvedCache = getLocalResolvedCache();
-
-        // Apply local resolution cache filter to flows and errors
-        const activeFlows = fetchedFlows.map((f: any) => {
-          if (resolvedCache.resolvedFlowIds[f.id]) {
-            return { ...f, unresolvedErrors: 0, errorCount24h: 0, status: 'healthy' };
-          }
-          return f;
-        });
-
-        const activeErrors = fetchedErrors.filter((err: any) => {
-          if (err.flowId && resolvedCache.resolvedFlowIds[err.flowId]) return false;
-          if (err.id && resolvedCache.resolvedErrorIds[err.id]) return false;
-          if (err.retryDataKey && resolvedCache.resolvedErrorIds[err.retryDataKey]) return false;
-          return true;
-        });
 
         if (liveFlowsRes.connected) {
-          setFlows(activeFlows);
+          setFlows(fetchedFlows);
           setIntegrations(fetchedIntegrations);
           setDataSource('live');
         }
 
         if (liveErrorsRes.connected) {
-          const enrichedErrors = activeErrors.map((err: CeligoErrorRecord) => {
+          const enrichedErrors = fetchedErrors.map((err: CeligoErrorRecord) => {
             const flowType = identifyFlowType(err);
             const companyName = getCompanyNameOrIntegration(err, 'Gappify Account');
             const shortDesc = getShortErrorDescription(err);
@@ -301,9 +246,9 @@ export default function App() {
         }
 
         setSyncStats({
-          flowsCount: activeFlows.length,
+          flowsCount: fetchedFlows.length,
           integrationsCount: fetchedIntegrations.length,
-          errorsCount: activeErrors.length,
+          errorsCount: fetchedErrors.length,
         });
 
         // Step 5: Finalized
@@ -554,10 +499,9 @@ export default function App() {
 
     const targetFlow = flows.find(f => f.id === flowId);
     const flowName = targetFlow?.name || 'Selected Flow';
-    const resolvedCache = getLocalResolvedCache();
 
-    // If flow is already resolved, don't synthesize false errors
-    if (resolvedCache.resolvedFlowIds[flowId] || targetFlow?.unresolvedErrors === 0) {
+    // If flow has 0 unresolved errors
+    if (targetFlow?.unresolvedErrors === 0) {
       setErrors(prev => prev.filter(e => e.flowId !== flowId));
       return;
     }
@@ -565,21 +509,12 @@ export default function App() {
     try {
       const res = await fetchFlowErrors(flowId);
       if (res.connected && res.errors && res.errors.length > 0) {
-        const activeResErrors = res.errors.filter((e: CeligoErrorRecord) => {
-          if (resolvedCache.resolvedFlowIds[flowId]) return false;
-          if (e.id && resolvedCache.resolvedErrorIds[e.id]) return false;
-          if (e.retryDataKey && resolvedCache.resolvedErrorIds[e.retryDataKey]) return false;
-          return true;
-        });
-
         setErrors(prev => {
           const others = prev.filter(e => e.flowId !== flowId);
-          return [...others, ...activeResErrors];
+          return [...others, ...res.errors];
         });
-        if (activeResErrors.length > 0) {
-          showToast(`Loaded ${activeResErrors.length} detailed error records for "${flowName}"`, 'success');
-        }
-      } else if ((targetFlow?.unresolvedErrors || 0) > 0 && !resolvedCache.resolvedFlowIds[flowId]) {
+        showToast(`Loaded ${res.errors.length} detailed error records for "${flowName}"`, 'success');
+      } else if ((targetFlow?.unresolvedErrors || 0) > 0) {
         // If detailed step errors API didn't return items but the flow genuinely has unresolved errors
         setErrors(prev => {
           const existing = prev.find(e => e.flowId === flowId);
@@ -659,7 +594,6 @@ export default function App() {
       });
 
       if (res.success) {
-        saveToLocalResolvedCache(errorRecord.flowId, [errorId, retryKey]);
         setWaitingState({
           isOpen: true,
           action: 'retry',
@@ -695,7 +629,6 @@ export default function App() {
       });
 
       if (res.success) {
-        saveToLocalResolvedCache(flowId, [...errorIds, ...retryDataKeys]);
         setWaitingState({
           isOpen: true,
           action: 'retry',
@@ -729,7 +662,6 @@ export default function App() {
       });
 
       if (res.success) {
-        saveToLocalResolvedCache(errorRecord.flowId, [errorId]);
         setWaitingState({
           isOpen: true,
           action: 'resolve',
@@ -770,7 +702,6 @@ export default function App() {
       });
 
       if (res.success) {
-        saveToLocalResolvedCache(flowId, errorIds);
         setWaitingState({
           isOpen: true,
           action: 'resolve',
@@ -791,8 +722,6 @@ export default function App() {
   const handleWaitingComplete = useCallback((success: boolean, remainingIds: string[]) => {
     if (success) {
       const { errorIds, flowId, action, isBatch, purgeFlag } = waitingStateRef.current;
-      
-      saveToLocalResolvedCache(flowId, errorIds);
       const updatedErrorIds = new Set(errorIds);
 
       setErrors(prev =>
