@@ -3,6 +3,10 @@ export interface StoredTokens {
   sandboxToken?: string;
   celigoStack?: 'us' | 'eu';
   gchatWebhookUrl?: string;
+  gmailDefaultRecipients?: string;
+  gchatMessageTemplate?: string;
+  gmailSubjectTemplate?: string;
+  gmailBodyTemplate?: string;
 }
 
 const STORAGE_KEY = 'celigo_user_tokens';
@@ -19,7 +23,9 @@ export function getStoredTokens(): StoredTokens {
 
 export function saveTokens(tokens: StoredTokens): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
+    const existing = getStoredTokens();
+    const merged = { ...existing, ...tokens };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
   } catch (err) {
     console.error('Failed to save tokens to localStorage:', err);
   }

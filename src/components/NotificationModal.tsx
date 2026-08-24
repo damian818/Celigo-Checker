@@ -6,12 +6,19 @@ import {
   MessageSquare, 
   Check, 
   AlertTriangle, 
-  ExternalLink,
-  Loader2
+  Loader2,
+  Edit3
 } from 'lucide-react';
 import { CeligoErrorRecord } from '../types/celigo';
 import { sendGChatAlert, sendGmailAlert } from '../services/apiClient';
 import { getStoredTokens } from '../services/tokenStorage';
+import { 
+  DEFAULT_GCHAT_TEMPLATE, 
+  DEFAULT_GMAIL_SUBJECT, 
+  DEFAULT_GMAIL_BODY,
+  DEFAULT_GMAIL_RECIPIENTS,
+  interpolateTemplate 
+} from '../services/userSettingsService';
 
 interface NotificationModalProps {
   error: CeligoErrorRecord;
@@ -23,8 +30,12 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   onClose,
 }) => {
   const [channel, setChannel] = useState<'both' | 'gchat' | 'gmail'>('both');
-  const [gchatSpace, setGchatSpace] = useState('Google Chat: #integrations-alerts (Production)');
-  const [gmailRecipients, setGmailRecipients] = useState('damian@gappify.com, support@gappify.com');
+  const [gchatSpace, setGchatSpace] = useState('');
+  const [gmailRecipients, setGmailRecipients] = useState(DEFAULT_GMAIL_RECIPIENTS);
+  const [customGchatMsg, setCustomGchatMsg] = useState('');
+  const [customGmailSubject, setCustomGmailSubject] = useState('');
+  const [customGmailBody, setCustomGmailBody] = useState('');
+  const [isEditingTemplate, setIsEditingTemplate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dispatchedResult, setDispatchedResult] = useState<any | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -34,16 +45,31 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
     if (tokens.gchatWebhookUrl) {
       setGchatSpace(tokens.gchatWebhookUrl);
     }
-  }, []);
+    if (tokens.gmailDefaultRecipients) {
+      setGmailRecipients(tokens.gmailDefaultRecipients);
+    }
+
+    const gchatTpl = tokens.gchatMessageTemplate || DEFAULT_GCHAT_TEMPLATE;
+    const gmailSubjTpl = tokens.gmailSubjectTemplate || DEFAULT_GMAIL_SUBJECT;
+    const gmailBodyTpl = tokens.gmailBodyTemplate || DEFAULT_GMAIL_BODY;
+
+    setCustomGchatMsg(interpolateTemplate(gchatTpl, error));
+    setCustomGmailSubject(interpolateTemplate(gmailSubjTpl, error));
+    setCustomGmailBody(interpolateTemplate(gmailBodyTpl, error));
+  }, [error]);
 
   const handleSend = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
       if (channel === 'gchat' || channel === 'both') {
-        if (!gchatSpace.startsWith('https://chat.googleapis.com/v1/spaces/')) {
-           throw new Error('Please enter a valid Google Chat Webhook URL starting with https://chat.googleapis.com/v1/spaces/...');
+        if (!gchatSpace.trim()) {
+          throw new Error('Please configure a Google Chat Webhook URL in Settings or enter one below.');
         }
+        if (!gchatSpace.startsWith('https://chat.googleapis.com/')) {
+          throw new Error('Please enter a valid Google Chat Webhook URL starting with https://chat.googleapis.com/...');
+        }
+
         await sendGChatAlert({
           title: `${error.recordIdentifier} failed in ${error.flowName}`,
           severity: error.severity,
@@ -51,15 +77,20 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           errorSummary: error.plainEnglishSummary,
           actionableStep: error.rootCauseSimple,
           cliCommand: error.suggestedCliCommand,
-          spaceName: gchatSpace,
+          spaceName: gchatSpace.trim(),
         });
       }
 
       if (channel === 'gmail' || channel === 'both') {
+        const recipientsList = gmailRecipients.split(',').map(r => r.trim()).filter(Boolean);
+        if (recipientsList.length === 0) {
+          throw new Error('Please enter at least one recipient email address for Gmail alerts.');
+        }
+
         await sendGmailAlert({
-          recipients: gmailRecipients.split(',').map(r => r.trim()).filter(Boolean),
-          subject: `[Celigo ${error.severity.toUpperCase()}] ${error.flowName} - ${error.recordIdentifier}`,
-          bodyHtml: `<h3>Celigo Integration Alert</h3><p>${error.plainEnglishSummary}</p><p><b>Action:</b> ${error.actionRequiredBy}</p>`,
+          recipients: recipientsList,
+          subject: customGmailSubject || `[Celigo ${error.severity.toUpperCase()}] ${error.flowName} - ${error.recordIdentifier}`,
+          bodyHtml: customGmailBody || `<h3>Celigo Integration Alert</h3><p>${error.plainEnglishSummary}</p><p><b>Action:</b> ${error.actionRequiredBy}</p>`,
           severity: error.severity,
           flowName: error.flowName,
         });
@@ -97,7 +128,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -114,17 +145,21 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 Alerts Successfully Broadcasted
               </h4>
               <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                Interactive cards have been dispatched to Google Chat and Gmail stakeholders with 1-click remediation links.
+                Interactive cards have been dispatched with customizable template payload and 1-click remediation links.
               </p>
             </div>
             <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-left text-xs font-mono text-slate-300 space-y-1">
-              <div>✓ Google Chat Webhook: Delivered</div>
-              <div>✓ Gmail Recipients: {gmailRecipients}</div>
+              {(channel === 'gchat' || channel === 'both') && (
+                <div>✓ Google Chat Webhook: Delivered</div>
+              )}
+              {(channel === 'gmail' || channel === 'both') && (
+                <div>✓ Gmail Recipients: {gmailRecipients}</div>
+              )}
               <div>✓ Timestamp: {dispatchedResult.timestamp}</div>
             </div>
             <button
               onClick={onClose}
-              className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition"
+              className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition cursor-pointer"
             >
               Close
             </button>
@@ -177,13 +212,14 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
             {(channel === 'gchat' || channel === 'both') && (
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Google Chat Space / Webhook:
+                  Google Chat Webhook Hook URL:
                 </label>
                 <input
                   type="text"
+                  placeholder="https://chat.googleapis.com/v1/spaces/.../messages?key=..."
                   value={gchatSpace}
                   onChange={(e) => setGchatSpace(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-medium"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
                 />
               </div>
             )}
@@ -203,25 +239,64 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               </div>
             )}
 
-            {/* Preview of Card Message */}
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Google Chat Card v2 Live Preview:
+            {/* Template Edit Toggle */}
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                Dispatched Message Preview
               </span>
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-700 space-y-1.5 text-xs">
-                <div className="font-bold text-rose-400 flex items-center gap-1">
-                  🚨 [{error.severity.toUpperCase()}] Celigo Incident: {error.recordIdentifier}
-                </div>
-                <div className="text-slate-300 font-medium">{error.flowName}</div>
-                <div className="text-[11px] text-slate-400">{error.plainEnglishSummary}</div>
-                <div className="pt-2 flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-indigo-600/30 text-indigo-300 text-[10px] font-semibold">
-                    Action: {error.actionRequiredBy}
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-mono">celigo-cli recovery attached</span>
+              <button
+                type="button"
+                onClick={() => setIsEditingTemplate(!isEditingTemplate)}
+                className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+              >
+                <Edit3 className="w-3 h-3" />
+                {isEditingTemplate ? 'Show Rendered Preview' : 'Customize Payload Before Sending'}
+              </button>
+            </div>
+
+            {/* Rendered or Editable Box */}
+            {isEditingTemplate ? (
+              <div className="space-y-3">
+                {(channel === 'gchat' || channel === 'both') && (
+                  <div>
+                    <label className="text-[11px] text-slate-400 mb-1 block">Google Chat Text Payload:</label>
+                    <textarea
+                      rows={4}
+                      value={customGchatMsg}
+                      onChange={(e) => setCustomGchatMsg(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs font-mono text-white resize-y"
+                    />
+                  </div>
+                )}
+                {(channel === 'gmail' || channel === 'both') && (
+                  <div>
+                    <label className="text-[11px] text-slate-400 mb-1 block">Gmail Subject Line:</label>
+                    <input
+                      type="text"
+                      value={customGmailSubject}
+                      onChange={(e) => setCustomGmailSubject(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white mb-2"
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                <div className="p-3 rounded-lg bg-slate-900 border border-slate-700 space-y-1.5 text-xs">
+                  <div className="font-bold text-rose-400 flex items-center gap-1">
+                    🚨 [{error.severity.toUpperCase()}] Celigo Incident: {error.recordIdentifier}
+                  </div>
+                  <div className="text-slate-300 font-medium">{error.flowName}</div>
+                  <div className="text-[11px] text-slate-400">{error.plainEnglishSummary}</div>
+                  <div className="pt-2 flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-indigo-600/30 text-indigo-300 text-[10px] font-semibold">
+                      Action: {error.actionRequiredBy}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">celigo-cli recovery attached</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Error Message */}
             {errorMsg && (
@@ -236,7 +311,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -244,7 +319,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 type="button"
                 onClick={handleSend}
                 disabled={loading}
-                className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition active:scale-95 disabled:opacity-50"
+                className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer"
               >
                 {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                 {loading ? 'Broadcasting...' : 'Send Alerts Now'}

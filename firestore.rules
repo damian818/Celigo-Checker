@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUserSettings(data) {
+      return data.userId == request.auth.uid
+        && data.userId is string
+        && data.userId.size() > 0
+        && data.userId.size() <= 128
+        && (!('email' in data) || (data.email is string && data.email.size() <= 256))
+        && (!('prodToken' in data) || (data.prodToken is string && data.prodToken.size() <= 2048))
+        && (!('sandboxToken' in data) || (data.sandboxToken is string && data.sandboxToken.size() <= 2048))
+        && (!('celigoStack' in data) || (data.celigoStack in ['us', 'eu']))
+        && (!('gchatWebhookUrl' in data) || (data.gchatWebhookUrl is string && data.gchatWebhookUrl.size() <= 2048))
+        && (!('gmailDefaultRecipients' in data) || (data.gmailDefaultRecipients is string && data.gmailDefaultRecipients.size() <= 2048))
+        && (!('gchatMessageTemplate' in data) || (data.gchatMessageTemplate is string && data.gchatMessageTemplate.size() <= 10000))
+        && (!('gmailSubjectTemplate' in data) || (data.gmailSubjectTemplate is string && data.gmailSubjectTemplate.size() <= 2048))
+        && (!('gmailBodyTemplate' in data) || (data.gmailBodyTemplate is string && data.gmailBodyTemplate.size() <= 20000))
+        && (!('autoSyncIntervalMinutes' in data) || (data.autoSyncIntervalMinutes is number && data.autoSyncIntervalMinutes >= 1 && data.autoSyncIntervalMinutes <= 1440))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 128));
+    }
+
+    // User Settings Collection (Cross-device persistence per authenticated user)
+    match /user_settings/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+      allow create, update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isValidUserSettings(request.resource.data);
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+  }
+}

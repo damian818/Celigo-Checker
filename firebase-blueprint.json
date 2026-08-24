@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "User preferences, Celigo API tokens, GChat webhook URL, Gmail recipients, and customizable message alert templates",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user owning these settings"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the authenticated Gappify user"
+        },
+        "prodToken": {
+          "type": "string",
+          "description": "Celigo Production API Bearer Token"
+        },
+        "sandboxToken": {
+          "type": "string",
+          "description": "Celigo Sandbox API Bearer Token"
+        },
+        "celigoStack": {
+          "type": "string",
+          "enum": ["us", "eu"],
+          "description": "Celigo API stack region"
+        },
+        "gchatWebhookUrl": {
+          "type": "string",
+          "description": "Google Chat Incoming Webhook URL"
+        },
+        "gmailDefaultRecipients": {
+          "type": "string",
+          "description": "Comma-separated default recipient email addresses for incident alerts"
+        },
+        "gchatMessageTemplate": {
+          "type": "string",
+          "description": "Customizable template for Google Chat card and text alerts"
+        },
+        "gmailSubjectTemplate": {
+          "type": "string",
+          "description": "Customizable subject template for Gmail incident notification emails"
+        },
+        "gmailBodyTemplate": {
+          "type": "string",
+          "description": "Customizable body HTML template for Gmail incident notification emails"
+        },
+        "autoSyncIntervalMinutes": {
+          "type": "number",
+          "description": "Auto-sync interval in minutes (15, 30, 60)"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last settings update"
+        }
+      },
+      "required": ["userId"]
+    }
+  },
+  "firestore": {
+    "/user_settings/{userId}": {
+      "schema": "UserSettings",
+      "description": "Stores user-scoped settings, tokens, GChat hooks, Gmail recipients, and notification templates for cross-device synchronization"
+    }
+  }
+}

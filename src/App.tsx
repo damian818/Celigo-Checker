@@ -34,8 +34,10 @@ import {
   fetchFlowErrors 
 } from './services/apiClient';
 import { buildCeligoFlowUrl } from './utils/celigoUrl';
-import { auth, googleProvider, isAllowedEmail, ALLOWED_DOMAIN } from './services/firebase';
+import { auth, googleProvider, isAllowedEmail, ALLOWED_DOMAIN, testFirestoreConnection } from './services/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
+import { subscribeToUserSettings } from './services/userSettingsService';
+import { saveTokens } from './services/tokenStorage';
 import {
   identifyFlowType,
   getCompanyNameOrIntegration,
@@ -380,7 +382,12 @@ export default function App() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    // Check Firestore connection status
+    testFirestoreConnection().catch(err => console.warn('Firestore initialization notice:', err));
+
+    let settingsUnsubscribe: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         if (!isAllowedEmail(currentUser.email)) {
           console.warn(`User ${currentUser.email} is not from @${ALLOWED_DOMAIN}. Signing out.`);
@@ -395,10 +402,36 @@ export default function App() {
           showToast(`Access Restricted: Only @${ALLOWED_DOMAIN} accounts are authorized to access this hub.`, 'error');
         } else {
           setUser(currentUser);
+          
+          // Subscribe to real-time user settings in Firebase Firestore
+          if (settingsUnsubscribe) settingsUnsubscribe();
+          settingsUnsubscribe = subscribeToUserSettings(currentUser.uid, (settings) => {
+            if (settings) {
+              // Keep local session tokens and cache synced across browser tabs/devices
+              saveTokens({
+                prodToken: settings.prodToken,
+                sandboxToken: settings.sandboxToken,
+                celigoStack: settings.celigoStack,
+                gchatWebhookUrl: settings.gchatWebhookUrl,
+                gmailDefaultRecipients: settings.gmailDefaultRecipients,
+                gchatMessageTemplate: settings.gchatMessageTemplate,
+                gmailSubjectTemplate: settings.gmailSubjectTemplate,
+                gmailBodyTemplate: settings.gmailBodyTemplate,
+              });
+              if (settings.autoSyncIntervalMinutes) {
+                setAutoSyncIntervalMinutes(settings.autoSyncIntervalMinutes);
+              }
+            }
+          });
+
           // Only fetch Celigo data after successful domain authentication
           syncCeligoData(false);
         }
       } else {
+        if (settingsUnsubscribe) {
+          settingsUnsubscribe();
+          settingsUnsubscribe = null;
+        }
         setUser(null);
         setFlows([]);
         setErrors([]);
@@ -409,7 +442,10 @@ export default function App() {
       setIsAuthChecking(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (settingsUnsubscribe) settingsUnsubscribe();
+    };
   }, []);
 
   const handleGoogleLogin = async () => {
@@ -1012,6 +1048,7 @@ export default function App() {
           }}
           prodConnected={prodConnected}
           sandboxConnected={sandboxConnected}
+          user={user}
         />
       )}
 
