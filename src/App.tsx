@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   AlertCircle, 
@@ -110,6 +110,8 @@ export default function App() {
     stepId: '',
     errorIds: []
   });
+  const waitingStateRef = useRef(waitingState);
+  waitingStateRef.current = waitingState;
   const [flows, setFlows] = useState<CeligoFlow[]>([]);
   const [integrations, setIntegrations] = useState<import("./types/celigo").CeligoIntegration[]>([]);
   const [errors, setErrors] = useState<CeligoErrorRecord[]>([]);
@@ -786,9 +788,9 @@ export default function App() {
     }
   };
 
-  const handleWaitingComplete = (success: boolean, remainingIds: string[]) => {
+  const handleWaitingComplete = useCallback((success: boolean, remainingIds: string[]) => {
     if (success) {
-      const { errorIds, flowId, action, isBatch, purgeFlag } = waitingState;
+      const { errorIds, flowId, action, isBatch, purgeFlag } = waitingStateRef.current;
       
       saveToLocalResolvedCache(flowId, errorIds);
       const updatedErrorIds = new Set(errorIds);
@@ -822,7 +824,7 @@ export default function App() {
       }
     }
     setWaitingState(prev => ({ ...prev, isOpen: false }));
-  };
+  }, []);
 
   // Update single error record (e.g. from AI analysis)
   const handleUpdateError = (updatedError: CeligoErrorRecord) => {

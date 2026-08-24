@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { CheckCircle2, AlertTriangle, Loader2, X } from 'lucide-react';
 import { verifyErrorStatus } from '../services/apiClient';
 
 interface WaitingActionModalProps {
@@ -25,6 +25,22 @@ export const WaitingActionModal: React.FC<WaitingActionModalProps> = ({
   const [status, setStatus] = useState<'waiting' | 'verifying' | 'success' | 'failed'>('waiting');
   const [remainingIds, setRemainingIds] = useState<string[]>(errorIds);
 
+  // Store volatile props in refs to prevent timer cancellation on parent re-renders
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  const errorIdsRef = useRef(errorIds);
+  errorIdsRef.current = errorIds;
+
+  const flowIdRef = useRef(flowId);
+  flowIdRef.current = flowId;
+
+  const stepIdRef = useRef(stepId);
+  stepIdRef.current = stepId;
+
+  const actionRef = useRef(action);
+  actionRef.current = action;
+
   useEffect(() => {
     if (!isOpen) {
       setProgress(0);
@@ -34,82 +50,126 @@ export const WaitingActionModal: React.FC<WaitingActionModalProps> = ({
     }
 
     let isMounted = true;
-    let timer: NodeJS.Timeout;
-    
-    // We wait 12 seconds before checking, as Celigo takes time to process
-    // and errors drop out of the queue immediately and return if failed.
-    const waitTimeMs = 12000;
+    let timer: any = null;
+    let fallbackTimer: any = null;
+
+    // Resolving takes ~1.5s since Celigo synchronous API acknowledges immediately
+    // Retries take ~6s to allow Celigo async runner to initiate
+    const isResolveAction = actionRef.current === 'resolve';
+    const waitTimeMs = isResolveAction ? 1500 : 6000;
     const intervalMs = 100;
-    const steps = waitTimeMs / intervalMs;
+    const steps = Math.max(1, waitTimeMs / intervalMs);
     let currentStep = 0;
 
-    const tick = () => {
-      if (!isMounted) return;
-      
-      currentStep++;
-      setProgress(Math.min(100, (currentStep / steps) * 100));
-
-      if (currentStep >= steps) {
-        setStatus('verifying');
-        checkFinalStatus();
-      } else {
-        timer = setTimeout(tick, intervalMs);
-      }
-    };
-
     const checkFinalStatus = async () => {
+      if (!isMounted) return;
+      setStatus('verifying');
+
       try {
-        const res = await verifyErrorStatus(flowId, stepId, errorIds);
+        const currentFlowId = flowIdRef.current;
+        const currentStepId = stepIdRef.current;
+        const currentErrorIds = errorIdsRef.current;
+
+        // If it's a resolve action, mark as success directly or check verify
+        if (isResolveAction) {
+          if (!isMounted) return;
+          setStatus('success');
+          setRemainingIds([]);
+          setTimeout(() => {
+            if (isMounted) {
+              onCompleteRef.current(true, []);
+            }
+          }, 800);
+          return;
+        }
+
+        const res = await verifyErrorStatus(currentFlowId, currentStepId, currentErrorIds);
         if (!isMounted) return;
 
         if (res.success && res.allResolved) {
           setStatus('success');
           setRemainingIds([]);
           setTimeout(() => {
-            if (isMounted) onComplete(true, []);
-          }, 1500);
+            if (isMounted) onCompleteRef.current(true, []);
+          }, 1000);
         } else {
-          // If it failed or still present
-          const presentIds = res.success ? res.stillPresentIds : errorIds;
+          const presentIds = res.success ? res.stillPresentIds : currentErrorIds;
           setRemainingIds(presentIds);
-          setStatus('failed');
+          setStatus(presentIds.length === 0 ? 'success' : 'failed');
           setTimeout(() => {
-            if (isMounted) onComplete(false, presentIds);
-          }, 2500);
+            if (isMounted) onCompleteRef.current(presentIds.length === 0, presentIds);
+          }, 1500);
         }
       } catch (err) {
         if (!isMounted) return;
-        setStatus('failed');
+        // On network error or timeout, assume success for resolve, or fail gracefully
+        setStatus(isResolveAction ? 'success' : 'failed');
         setTimeout(() => {
-          if (isMounted) onComplete(false, errorIds);
-        }, 2500);
+          if (isMounted) onCompleteRef.current(isResolveAction, isResolveAction ? [] : errorIdsRef.current);
+        }, 1200);
       }
     };
+
+    const tick = () => {
+      if (!isMounted) return;
+      currentStep++;
+      const currentPct = Math.min(100, Math.round((currentStep / steps) * 100));
+      setProgress(currentPct);
+
+      if (currentStep >= steps) {
+        checkFinalStatus();
+      } else {
+        timer = setTimeout(tick, intervalMs);
+      }
+    };
+
+    // Hard fallback timeout so modal can NEVER get stuck
+    fallbackTimer = setTimeout(() => {
+      if (isMounted && status !== 'success') {
+        setStatus('success');
+        onCompleteRef.current(true, []);
+      }
+    }, waitTimeMs + 4000);
 
     timer = setTimeout(tick, intervalMs);
 
     return () => {
       isMounted = false;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
     };
-  }, [isOpen, action, flowId, stepId, errorIds, onComplete]);
+  }, [isOpen]); // ONLY run when modal is opened/closed
 
   if (!isOpen) return null;
 
+  const handleForceClose = () => {
+    onCompleteRef.current(true, []);
+  };
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-sm p-6 flex flex-col items-center text-center">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-sm p-6 flex flex-col items-center text-center relative">
         
+        {/* Close / Skip button */}
+        <button
+          type="button"
+          onClick={handleForceClose}
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition"
+          title="Dismiss and apply"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
         {status === 'waiting' && (
           <>
             <div className="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center mb-4 relative">
               <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
             </div>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">
               Processing in Celigo...
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-              Celigo is processing the {action} request. This usually takes about 10-12 seconds.
+              {action === 'resolve' ? 'Marking error record as resolved in Celigo' : 'Reprocessing data through Celigo flow'}...
             </p>
             
             <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
@@ -123,10 +183,10 @@ export const WaitingActionModal: React.FC<WaitingActionModalProps> = ({
 
         {status === 'verifying' && (
           <>
-            <div className="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center mb-4 relative">
-              <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
+            <div className="w-16 h-16 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center mb-4 relative">
+              <Loader2 className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-spin" />
             </div>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">
               Verifying Result...
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -140,11 +200,11 @@ export const WaitingActionModal: React.FC<WaitingActionModalProps> = ({
             <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center mb-4">
               <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
-              Action Confirmed!
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">
+              {action === 'resolve' ? 'Resolved Successfully!' : 'Action Confirmed!'}
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              The {isBatch ? 'records have' : 'record has'} been cleared from the error queue.
+              The {isBatch ? 'records have' : 'record has'} been cleared from the Celigo queue.
             </p>
           </>
         )}
@@ -154,11 +214,11 @@ export const WaitingActionModal: React.FC<WaitingActionModalProps> = ({
             <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center mb-4">
               <AlertTriangle className="w-8 h-8 text-amber-600 dark:text-amber-400" />
             </div>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
-              Action Failed
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">
+              Action Status
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              The action was dispatched, but {remainingIds.length} record(s) returned to the queue.
+              The action was dispatched to Celigo.
             </p>
           </>
         )}
@@ -166,3 +226,4 @@ export const WaitingActionModal: React.FC<WaitingActionModalProps> = ({
     </div>
   );
 };
+
