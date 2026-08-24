@@ -232,6 +232,7 @@ export interface RetryOptions {
   flowId?: string;
   stepId?: string;
   exportOrImportId?: string;
+  environment?: string;
   retryDataKey?: string;
   retryDataKeys?: string[];
   selectAll?: boolean;
@@ -244,6 +245,7 @@ export interface ResolveOptions {
   flowId?: string;
   stepId?: string;
   exportOrImportId?: string;
+  environment?: string;
   selectAll?: boolean;
   lastErrorAt?: string;
   purge?: boolean;

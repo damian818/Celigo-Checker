@@ -589,6 +589,7 @@ export default function App() {
         errorId,
         flowId: errorRecord.flowId,
         stepId,
+        environment: errorRecord.environment,
         retryDataKey: retryKey,
         retryDataKeys: retryKey ? [retryKey] : undefined,
       });
@@ -625,6 +626,7 @@ export default function App() {
         errorIds,
         flowId,
         stepId,
+        environment: firstRecord?.environment,
         retryDataKeys: retryDataKeys.length > 0 ? retryDataKeys : undefined,
       });
 
@@ -658,6 +660,7 @@ export default function App() {
         errorId,
         flowId: errorRecord.flowId,
         stepId,
+        environment: errorRecord.environment,
         purge,
       });
 
@@ -698,6 +701,7 @@ export default function App() {
         errorIds,
         flowId,
         stepId,
+        environment: firstRecord?.environment,
         purge,
       });
 

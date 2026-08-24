@@ -1346,6 +1346,8 @@ apiRouter.get('/celigo/live-errors', async (req: Request, res: Response) => {
                     allMappedErrors.push({
                       id: `${flowId}_summary_err`,
                       flowId: flowId,
+                      stepId: String(ie._expOrImpId || ie._stepId || ie._importId || ie._exportId || ''),
+                      exportOrImportId: String(ie._expOrImpId || ie._stepId || ie._importId || ie._exportId || ''),
                       flowName: flowName,
                       flowType: flowType,
                       companyName: companyName,
@@ -1562,61 +1564,109 @@ interface ResolvedRecord {
 const resolvedStore = new Map<string, ResolvedRecord>();
 const resolvedFlows = new Map<string, { resolvedAt: number; count: number; action: string }>();
 
-// Helper to discover all valid step IDs on a Celigo flow
-async function discoverFlowStepIds(target: { stack: string; token: string }, flowId: string): Promise<string[]> {
-  const stepIds = new Set<string>();
-  try {
-    const flowRes = await fetch(`${target.stack}/v1/flows/${flowId}`, {
-      headers: { 'Authorization': `Bearer ${target.token}`, 'Content-Type': 'application/json' }
-    });
-    if (flowRes.ok) {
-      const flowData = await flowRes.json();
-      if (flowData._exportId) stepIds.add(String(flowData._exportId));
-      if (flowData._importId) stepIds.add(String(flowData._importId));
-      if (Array.isArray(flowData._importIds)) {
-        flowData._importIds.forEach((id: any) => id && stepIds.add(String(id)));
-      }
-      if (Array.isArray(flowData.pageProcessors)) {
-        flowData.pageProcessors.forEach((pp: any) => {
-          if (pp._importId) stepIds.add(String(pp._importId));
-          if (pp._exportId) stepIds.add(String(pp._exportId));
-          if (pp._id || pp.id) stepIds.add(String(pp._id || pp.id));
-        });
-      }
-      if (Array.isArray(flowData.responseMappings)) {
-        flowData.responseMappings.forEach((rm: any) => {
-          if (rm._importId) stepIds.add(String(rm._importId));
-          if (rm._id || rm.id) stepIds.add(String(rm._id || rm.id));
-        });
-      }
-      if (Array.isArray(flowData.exports)) {
-        flowData.exports.forEach((e: any) => (e._id || e.id) && stepIds.add(String(e._id || e.id)));
-      }
-      if (Array.isArray(flowData.imports)) {
-        flowData.imports.forEach((i: any) => (i._id || i.id) && stepIds.add(String(i._id || i.id)));
-      }
-    }
-  } catch (err) {
-    console.warn(`Could not inspect flow definition for ${flowId}:`, err);
-  }
+interface DiscoveredStep {
+  stepId: string;
+  lastErrorAt?: string;
+  numErrors?: number;
+}
 
+// Helper to discover all valid step IDs and error metadata on a Celigo flow
+async function discoverFlowStepDetails(target: { stack: string; token: string }, flowId: string): Promise<DiscoveredStep[]> {
+  const stepsMap = new Map<string, DiscoveredStep>();
+
+  // 1. Check flow errors endpoint first (gives active steps + lastErrorAt + numErrors)
   try {
     const errRes = await fetch(`${target.stack}/v1/flows/${flowId}/errors`, {
       headers: { 'Authorization': `Bearer ${target.token}`, 'Content-Type': 'application/json' }
     });
     if (errRes.ok) {
       const errData = await errRes.json();
-      const steps = Array.isArray(errData) ? errData : (errData.flowErrors || []);
-      steps.forEach((s: any) => {
-        const sId = s._expOrImpId || s._id || s.id || s._stepId || s.stepId;
-        if (sId) stepIds.add(String(sId));
-      });
+      const rawSteps = Array.isArray(errData) 
+        ? errData 
+        : (errData.flowErrors || errData.errors || errData.steps || errData.data || []);
+      if (Array.isArray(rawSteps)) {
+        rawSteps.forEach((s: any) => {
+          const sId = s._expOrImpId || s.expOrImpId || s._exportOrImportId || s.exportOrImportId || s._stepId || s.stepId || s._id || s.id;
+          if (sId && /^[0-9a-fA-F]{24}$/.test(String(sId))) {
+            stepsMap.set(String(sId), {
+              stepId: String(sId),
+              lastErrorAt: s.lastErrorAt || s.occurredAt || s.timestamp,
+              numErrors: s.numError ?? s.numErrors ?? s.errorCount ?? s.errors ?? 1
+            });
+          }
+        });
+      }
     }
   } catch (err) {
     console.warn(`Could not inspect flow error steps for ${flowId}:`, err);
   }
 
-  return Array.from(stepIds).filter(Boolean);
+  // 2. Check flow definition
+  try {
+    const flowRes = await fetch(`${target.stack}/v1/flows/${flowId}`, {
+      headers: { 'Authorization': `Bearer ${target.token}`, 'Content-Type': 'application/json' }
+    });
+    if (flowRes.ok) {
+      const flowData = await flowRes.json();
+      const addStep = (id: any) => {
+        if (!id) return;
+        const strId = typeof id === 'string' ? id : (id._id || id.id || id._importId || id._exportId);
+        if (strId && typeof strId === 'string' && /^[0-9a-fA-F]{24}$/.test(strId) && !stepsMap.has(strId)) {
+          stepsMap.set(strId, { stepId: strId });
+        }
+      };
+
+      addStep(flowData._exportId);
+      addStep(flowData._importId);
+      addStep(flowData._sourceId);
+      addStep(flowData._targetId);
+      if (Array.isArray(flowData._exportIds)) flowData._exportIds.forEach(addStep);
+      if (Array.isArray(flowData._importIds)) flowData._importIds.forEach(addStep);
+      if (Array.isArray(flowData.exports)) flowData.exports.forEach(addStep);
+      if (Array.isArray(flowData.imports)) flowData.imports.forEach(addStep);
+      if (Array.isArray(flowData.pageProcessors)) {
+        flowData.pageProcessors.forEach((pp: any) => {
+          addStep(pp._importId);
+          addStep(pp._exportId);
+          addStep(pp._id || pp.id);
+        });
+      }
+      if (Array.isArray(flowData.pages)) {
+        flowData.pages.forEach((p: any) => {
+          addStep(p._importId);
+          addStep(p._exportId);
+          addStep(p._id || p.id);
+        });
+      }
+      if (Array.isArray(flowData.responseMappings)) {
+        flowData.responseMappings.forEach((rm: any) => {
+          addStep(rm._importId);
+          addStep(rm._exportId);
+          addStep(rm._id || rm.id);
+        });
+      }
+      if (Array.isArray(flowData.rules)) flowData.rules.forEach(addStep);
+      if (Array.isArray(flowData.steps)) flowData.steps.forEach(addStep);
+      if (Array.isArray(flowData.nodes)) flowData.nodes.forEach(addStep);
+
+      // Fallback: If still no steps, extract any 24-hex string found in the flow object
+      if (stepsMap.size === 0) {
+        const jsonStr = JSON.stringify(flowData);
+        const matches = jsonStr.match(/[0-9a-fA-F]{24}/g);
+        if (matches) {
+          matches.forEach(m => {
+            if (m !== flowId && !stepsMap.has(m)) {
+              stepsMap.set(m, { stepId: m });
+            }
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`Could not inspect flow definition for ${flowId}:`, err);
+  }
+
+  return Array.from(stepsMap.values());
 }
 
 // Celigo Error Actions: Retry Errors API (Complies with POST /v1/flows/{flowId}/{exportOrImportId}/retry)
@@ -1624,22 +1674,43 @@ apiRouter.post('/celigo/retry-errors', async (req: Request, res: Response) => {
   try {
     const { 
       errorIds, 
-      flowId, 
+      flowId: rawFlowId, 
       errorId, 
       stepId, 
       exportOrImportId, 
+      environment,
       retryDataKeys, 
       retryDataKey, 
       selectAll, 
       lastErrorAt 
     } = req.body;
 
-    const effStepId = stepId || exportOrImportId;
+    const effStepId = (stepId && /^[0-9a-fA-F]{24}$/.test(stepId)) 
+      ? stepId 
+      : ((exportOrImportId && /^[0-9a-fA-F]{24}$/.test(exportOrImportId)) ? exportOrImportId : '');
+      
     const effKeys: string[] = Array.isArray(retryDataKeys) && retryDataKeys.length > 0 
       ? retryDataKeys 
       : (retryDataKey ? [retryDataKey] : (Array.isArray(errorIds) ? errorIds : (errorId ? [errorId] : [])));
     
-    const targets = getCeligoTargets(req);
+    let flowId = rawFlowId;
+    if (!flowId && effKeys.length > 0) {
+      for (const k of effKeys) {
+        if (k && k.includes('_summary_err')) {
+          flowId = k.split('_summary_err')[0];
+          break;
+        }
+      }
+    }
+
+    let targets = getCeligoTargets(req);
+    if (environment) {
+      const matchEnv = targets.find(t => t.name === environment);
+      if (matchEnv) {
+        targets = [matchEnv, ...targets.filter(t => t.name !== environment)];
+      }
+    }
+
     let celigoApiSuccess = false;
     let celigoMessage = '';
     let returnedJob: any = null;
@@ -1649,16 +1720,20 @@ apiRouter.post('/celigo/retry-errors', async (req: Request, res: Response) => {
       if (!flowId) continue;
 
       try {
-        const discoveredSteps = await discoverFlowStepIds(target, flowId);
-        const targetSteps = Array.from(new Set([...(effStepId ? [effStepId] : []), ...discoveredSteps]));
-        if (targetSteps.length === 0) targetSteps.push('default');
+        const discoveredSteps = await discoverFlowStepDetails(target, flowId);
+        const targetStepList: DiscoveredStep[] = [...discoveredSteps];
+        if (effStepId && !targetStepList.some(s => s.stepId === effStepId)) {
+          targetStepList.unshift({ stepId: effStepId, lastErrorAt });
+        }
 
-        for (const sId of targetSteps) {
-          const retryUrl = sId === 'default' 
-            ? `${target.stack}/v1/flows/${flowId}/retry`
-            : `${target.stack}/v1/flows/${flowId}/${sId}/retry`;
+        // If flow not found in this environment, don't execute invalid calls
+        if (targetStepList.length === 0) {
+          continue;
+        }
 
-          const hasOnlySyntheticKeys = effKeys.length === 0 || effKeys.every(k => k.includes('_summary_err') || k.startsWith('flow_'));
+        for (const step of targetStepList) {
+          const retryUrl = `${target.stack}/v1/flows/${flowId}/${step.stepId}/retry`;
+          const hasOnlySyntheticKeys = effKeys.length === 0 || effKeys.every(k => k.includes('_summary_err') || k.startsWith('flow_') || !/^[0-9a-fA-F]{24}$/.test(k));
 
           if (selectAll || hasOnlySyntheticKeys) {
             const bulkResp = await fetch(retryUrl, {
@@ -1669,7 +1744,7 @@ apiRouter.post('/celigo/retry-errors', async (req: Request, res: Response) => {
               },
               body: JSON.stringify({
                 selectAll: true,
-                lastErrorAt: lastErrorAt || new Date().toISOString()
+                lastErrorAt: step.lastErrorAt || lastErrorAt || new Date().toISOString()
               })
             });
 
@@ -1729,24 +1804,8 @@ apiRouter.post('/celigo/retry-errors', async (req: Request, res: Response) => {
           }
         }
 
-        if (!celigoApiSuccess) {
-          const directFlowRetryUrl = `${target.stack}/v1/flows/${flowId}/retry`;
-          const directResp = await fetch(directFlowRetryUrl, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${target.token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ selectAll: true, lastErrorAt: lastErrorAt || new Date().toISOString() })
-          });
-          if (directResp.ok || directResp.status === 204 || directResp.status === 202) {
-            celigoApiSuccess = true;
-            returnedJob = directResp.status !== 204 ? await directResp.json().catch(() => null) : null;
-          }
-        }
-
         if (celigoApiSuccess) {
-          celigoMessage = `Dispatched retry job to Celigo for flow ${flowId} (${returnedJob?.jobId ? 'Job ID: ' + returnedJob.jobId : 'Enqueued'}).`;
+          celigoMessage = `Dispatched retry job to Celigo (${target.label}) for flow ${flowId} (${returnedJob?.jobId ? 'Job ID: ' + returnedJob.jobId : 'Enqueued'}).`;
           break;
         }
       } catch (e: any) {
@@ -1756,7 +1815,7 @@ apiRouter.post('/celigo/retry-errors', async (req: Request, res: Response) => {
     }
 
     if (!celigoApiSuccess && targets.length === 0) {
-      celigoMessage = `[Simulation Mode] Re-processed and enqueued ${effKeys.length || 1} record(s) on flow ${flowId || 'integration'}.`;
+      celigoMessage = `[Preview Mode] Re-processed and enqueued ${effKeys.length || 1} record(s) on flow ${flowId || 'integration'}.`;
       celigoApiSuccess = true;
     }
 
@@ -1770,7 +1829,7 @@ apiRouter.post('/celigo/retry-errors', async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      count: effKeys.length,
+      count: effKeys.length || 1,
       retriedKeys: effKeys,
       selectAll: Boolean(selectAll),
       message: celigoMessage || `Retried errors for flow ${flowId}`,
@@ -1793,17 +1852,21 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
       errorId, 
       stepId, 
       exportOrImportId, 
+      environment,
       selectAll, 
       lastErrorAt, 
       purge 
     } = req.body;
 
-    const effStepId = stepId || exportOrImportId;
+    const effStepId = (stepId && /^[0-9a-fA-F]{24}$/.test(stepId)) 
+      ? stepId 
+      : ((exportOrImportId && /^[0-9a-fA-F]{24}$/.test(exportOrImportId)) ? exportOrImportId : '');
+
     const idsToResolve: string[] = Array.isArray(errorIds) && errorIds.length > 0
       ? errorIds 
       : (errorId ? [errorId] : []);
 
-    // Extract flowId from ids if not explicitly passed (e.g. from errorId strings like '649abc..._summary_err')
+    // Extract flowId from ids if not explicitly passed
     let flowId = rawFlowId;
     if (!flowId && idsToResolve.length > 0) {
       for (const id of idsToResolve) {
@@ -1814,7 +1877,14 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
       }
     }
 
-    const targets = getCeligoTargets(req);
+    let targets = getCeligoTargets(req);
+    if (environment) {
+      const matchEnv = targets.find(t => t.name === environment);
+      if (matchEnv) {
+        targets = [matchEnv, ...targets.filter(t => t.name !== environment)];
+      }
+    }
+
     let celigoApiSuccess = false;
     let celigoMessage = '';
     let lastErrorDetails: string = '';
@@ -1823,18 +1893,25 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
       if (!flowId) continue;
 
       try {
-        const discoveredSteps = await discoverFlowStepIds(target, flowId);
-        const targetSteps = Array.from(new Set([...(effStepId ? [effStepId] : []), ...discoveredSteps]));
-        if (targetSteps.length === 0) targetSteps.push('default');
+        const discoveredSteps = await discoverFlowStepDetails(target, flowId);
+        const targetStepList: DiscoveredStep[] = [...discoveredSteps];
+        if (effStepId && !targetStepList.some(s => s.stepId === effStepId)) {
+          targetStepList.unshift({ stepId: effStepId, lastErrorAt });
+        }
+
+        // If flow not found in this environment, don't execute invalid calls
+        if (targetStepList.length === 0) {
+          continue;
+        }
 
         const isHexIdList = idsToResolve.length > 0 && idsToResolve.every(id => /^[0-9a-fA-F]{24}$/.test(id));
         const hasOnlySyntheticIds = idsToResolve.length === 0 || idsToResolve.every(id => id.includes('_summary_err') || id.startsWith('flow_') || !/^[0-9a-fA-F]{24}$/.test(id));
 
-        for (const sId of targetSteps) {
-          const stepResolveUrl = `${target.stack}/v1/flows/${flowId}/${sId}/resolved`;
+        for (const step of targetStepList) {
+          const stepResolveUrl = `${target.stack}/v1/flows/${flowId}/${step.stepId}/resolved`;
 
           // Format 1: If valid MongoDB ObjectIDs, try specific error IDs payload
-          if (isHexIdList && !selectAll && !hasOnlySyntheticIds && sId !== 'default') {
+          if (isHexIdList && !selectAll && !hasOnlySyntheticIds) {
             try {
               const resp = await fetch(stepResolveUrl, {
                 method: 'PUT',
@@ -1858,12 +1935,8 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
 
           // Format 2: Standard Celigo Bulk Purge payload { selectAll: true, lastErrorAt }
           if (!celigoApiSuccess) {
-            const urlToTry = sId === 'default'
-              ? `${target.stack}/v1/flows/${flowId}/resolved`
-              : stepResolveUrl;
-
             try {
-              const bulkResp = await fetch(urlToTry, {
+              const bulkResp = await fetch(stepResolveUrl, {
                 method: 'PUT',
                 headers: {
                   'Authorization': `Bearer ${target.token}`,
@@ -1871,7 +1944,7 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
                 },
                 body: JSON.stringify({
                   selectAll: true,
-                  ...(lastErrorAt ? { lastErrorAt } : {})
+                  ...(step.lastErrorAt || lastErrorAt ? { lastErrorAt: step.lastErrorAt || lastErrorAt } : {})
                 })
               });
 
@@ -1882,7 +1955,7 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
                 lastErrorDetails = await bulkResp.text().catch(() => 'HTTP ' + bulkResp.status);
                 
                 // Format 3: Minimal { selectAll: true }
-                const simpleResp = await fetch(urlToTry, {
+                const simpleResp = await fetch(stepResolveUrl, {
                   method: 'PUT',
                   headers: {
                     'Authorization': `Bearer ${target.token}`,
@@ -1904,30 +1977,8 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
           }
         }
 
-        // Format 4: Flow-level direct endpoint PUT /v1/flows/{flowId}/resolved
-        if (!celigoApiSuccess) {
-          const directResolveUrl = `${target.stack}/v1/flows/${flowId}/resolved`;
-          try {
-            const directResp = await fetch(directResolveUrl, {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${target.token}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ selectAll: true })
-            });
-            if (directResp.ok || directResp.status === 204 || directResp.status === 200) {
-              celigoApiSuccess = true;
-            } else {
-              lastErrorDetails = await directResp.text().catch(() => 'HTTP ' + directResp.status);
-            }
-          } catch (err: any) {
-            lastErrorDetails = err.message;
-          }
-        }
-
         if (celigoApiSuccess) {
-          celigoMessage = `Marked errors as RESOLVED in Celigo integrator.io for flow ${flowId}.`;
+          celigoMessage = `Marked errors as RESOLVED in Celigo integrator.io (${target.label}) for flow ${flowId}.`;
           break;
         }
       } catch (e: any) {
