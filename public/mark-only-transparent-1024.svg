@@ -1,0 +1,40 @@
+
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+    <defs>
+      <linearGradient id="shieldGradT" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#38BDF8" />
+        <stop offset="50%" stop-color="#0284C7" />
+        <stop offset="100%" stop-color="#2563EB" />
+      </linearGradient>
+      <linearGradient id="loopLeftT" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#38BDF8" />
+        <stop offset="100%" stop-color="#0284C7" />
+      </linearGradient>
+      <linearGradient id="loopRightT" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#0284C7" />
+        <stop offset="100%" stop-color="#2563EB" />
+      </linearGradient>
+      <linearGradient id="checkGradT" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#4ADE80" />
+        <stop offset="100%" stop-color="#22C55E" />
+      </linearGradient>
+    </defs>
+    <!-- Outer Shield Outline -->
+    <path d="M 256 70 C 316 95 385 105 410 120 C 410 260 370 365 256 442 C 142 365 102 260 102 120 C 127 105 196 95 256 70 Z" 
+          fill="none" 
+          stroke="url(#shieldGradT)" 
+          stroke-width="16" 
+          stroke-linejoin="round"
+          stroke-linecap="round"/>
+
+    <circle cx="210" cy="256" r="62" fill="none" stroke="url(#loopLeftT)" stroke-width="26" stroke-linecap="round"/>
+    <circle cx="302" cy="256" r="62" fill="none" stroke="url(#loopRightT)" stroke-width="26" stroke-linecap="round"/>
+    <circle cx="256" cy="226" r="13" fill="#F87171" stroke="#0B1220" stroke-width="4"/>
+    <path d="M 226 260 L 250 286 L 298 228" 
+          fill="none" 
+          stroke="url(#checkGradT)" 
+          stroke-width="22" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"/>
+  </svg>
+  

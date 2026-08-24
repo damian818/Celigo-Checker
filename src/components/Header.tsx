@@ -11,9 +11,11 @@ import {
   Key,
   LogOut,
   User as UserIcon,
-  Loader2
+  Loader2,
+  ShieldCheck
 } from 'lucide-react';
 import type { User } from '../services/firebase';
+import { GappifyLogo } from './GappifyLogo';
 
 interface HeaderProps {
   activeTab: 'dashboard' | 'errors';
@@ -178,21 +180,19 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Main Navbar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
         {/* Brand & Title */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 border border-indigo-400/30">
-            <Layers className="w-6 h-6 text-white" />
-          </div>
+        <div className="flex items-center gap-3.5">
+          <GappifyLogo size={42} />
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                Celigo Incident Hub
+              <h1 className="text-lg font-extrabold tracking-tight text-white flex items-center gap-2">
+                Gappify <span className="font-semibold text-sky-400">Celigo Remediation Hub</span>
               </h1>
-              <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                AI Remediation
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-xs">
+                AI Auto-Heal
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Plain-English error analysis & automated recovery for non-technical & IT teams
+              Automated Celigo integrator.io error analysis &amp; one-click self-healing workflows
             </p>
           </div>
         </div>
@@ -201,17 +201,20 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2">
           {user ? (
             <div className="flex items-center gap-2 mr-2">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-950/40 border border-indigo-500/20">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sky-950/40 border border-sky-500/30">
                 {user.photoURL ? (
-                  <img src={user.photoURL} alt="Avatar" className="w-5 h-5 rounded-full" />
+                  <img src={user.photoURL} alt="Avatar" className="w-5 h-5 rounded-full ring-1 ring-sky-400" />
                 ) : (
-                  <UserIcon className="w-4 h-4 text-indigo-400" />
+                  <UserIcon className="w-4 h-4 text-sky-400" />
                 )}
-                <span className="text-xs font-medium text-indigo-100">{user.displayName || user.email}</span>
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-semibold text-sky-100 leading-tight">{user.displayName || user.email}</span>
+                  <span className="text-[10px] text-emerald-400 font-mono">@gappify.com</span>
+                </div>
               </div>
               <button
                 onClick={onLogout}
-                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                className="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition cursor-pointer border border-transparent hover:border-slate-700"
                 title="Log Out"
               >
                 <LogOut className="w-4 h-4" />
@@ -221,10 +224,11 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onLogin}
               disabled={isLoggingIn}
-              className="mr-2 px-3 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              className="mr-2 px-3.5 py-2 rounded-lg bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 border border-sky-500/30 text-xs font-semibold flex items-center gap-2 transition cursor-pointer disabled:opacity-50 shadow-sm"
+              title="Sign in with your @gappify.com Google Workspace account"
             >
-              {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserIcon className="w-4 h-4" />}
-              Connect Workspace
+              {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin text-sky-400" /> : <ShieldCheck className="w-4 h-4 text-sky-400" />}
+              <span>Sign In with @gappify.com</span>
             </button>
           )}
 

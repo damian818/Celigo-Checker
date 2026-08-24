@@ -24,5 +24,19 @@ googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify');
 googleProvider.addScope('https://www.googleapis.com/auth/chat.messages');
 googleProvider.addScope('https://www.googleapis.com/auth/chat.spaces');
 
+// Prompt specifically for @gappify.com Google Workspace domain accounts
+googleProvider.setCustomParameters({
+  hd: 'gappify.com',
+  prompt: 'select_account'
+});
+
+export const ALLOWED_DOMAIN = 'gappify.com';
+
+export function isAllowedEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  return normalized.endsWith(`@${ALLOWED_DOMAIN}`);
+}
+
 // Export types
 export type { User };

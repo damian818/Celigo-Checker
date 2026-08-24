@@ -31,7 +31,7 @@ import {
   fetchFlowErrors 
 } from './services/apiClient';
 import { buildCeligoFlowUrl } from './utils/celigoUrl';
-import { auth, googleProvider } from './services/firebase';
+import { auth, googleProvider, isAllowedEmail, ALLOWED_DOMAIN } from './services/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
 import {
   identifyFlowType,
@@ -39,6 +39,50 @@ import {
   getShortErrorDescription,
   formatErrorSummary,
 } from './utils/errorSummaryFormatter';
+
+interface LocalResolvedCache {
+  resolvedFlowIds: Record<string, number>;
+  resolvedErrorIds: Record<string, number>;
+}
+
+const LOCAL_RESOLVED_KEY = 'celigo_resolved_cache_v1';
+
+function getLocalResolvedCache(): LocalResolvedCache {
+  try {
+    const raw = localStorage.getItem(LOCAL_RESOLVED_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const now = Date.now();
+      const maxAge = 24 * 60 * 60 * 1000;
+      const resolvedFlowIds: Record<string, number> = {};
+      const resolvedErrorIds: Record<string, number> = {};
+      Object.entries(parsed.resolvedFlowIds || {}).forEach(([k, v]) => {
+        if (now - (v as number) < maxAge) resolvedFlowIds[k] = v as number;
+      });
+      Object.entries(parsed.resolvedErrorIds || {}).forEach(([k, v]) => {
+        if (now - (v as number) < maxAge) resolvedErrorIds[k] = v as number;
+      });
+      return { resolvedFlowIds, resolvedErrorIds };
+    }
+  } catch {}
+  return { resolvedFlowIds: {}, resolvedErrorIds: {} };
+}
+
+function saveToLocalResolvedCache(flowId?: string, errorIds?: string[]) {
+  try {
+    const current = getLocalResolvedCache();
+    const now = Date.now();
+    if (flowId) {
+      current.resolvedFlowIds[flowId] = now;
+    }
+    if (errorIds) {
+      errorIds.forEach(id => {
+        if (id) current.resolvedErrorIds[id] = now;
+      });
+    }
+    localStorage.setItem(LOCAL_RESOLVED_KEY, JSON.stringify(current));
+  } catch {}
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -145,15 +189,31 @@ export default function App() {
         const fetchedFlows = liveFlowsRes.flows || [];
         const fetchedIntegrations = liveFlowsRes.integrations || [];
         const fetchedErrors = liveErrorsRes.errors || [];
+        const resolvedCache = getLocalResolvedCache();
+
+        // Apply local resolution cache filter to flows and errors
+        const activeFlows = fetchedFlows.map((f: any) => {
+          if (resolvedCache.resolvedFlowIds[f.id]) {
+            return { ...f, unresolvedErrors: 0, errorCount24h: 0, status: 'healthy' };
+          }
+          return f;
+        });
+
+        const activeErrors = fetchedErrors.filter((err: any) => {
+          if (err.flowId && resolvedCache.resolvedFlowIds[err.flowId]) return false;
+          if (err.id && resolvedCache.resolvedErrorIds[err.id]) return false;
+          if (err.retryDataKey && resolvedCache.resolvedErrorIds[err.retryDataKey]) return false;
+          return true;
+        });
 
         if (liveFlowsRes.connected) {
-          setFlows(fetchedFlows);
+          setFlows(activeFlows);
           setIntegrations(fetchedIntegrations);
           setDataSource('live');
         }
 
         if (liveErrorsRes.connected) {
-          const enrichedErrors = fetchedErrors.map((err: CeligoErrorRecord) => {
+          const enrichedErrors = activeErrors.map((err: CeligoErrorRecord) => {
             const flowType = identifyFlowType(err);
             const companyName = getCompanyNameOrIntegration(err, 'Gappify Account');
             const shortDesc = getShortErrorDescription(err);
@@ -170,9 +230,9 @@ export default function App() {
         }
 
         setSyncStats({
-          flowsCount: fetchedFlows.length,
+          flowsCount: activeFlows.length,
           integrationsCount: fetchedIntegrations.length,
-          errorsCount: fetchedErrors.length,
+          errorsCount: activeErrors.length,
         });
 
         // Step 5: Finalized
@@ -223,8 +283,20 @@ export default function App() {
   useEffect(() => {
     syncCeligoData(false);
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        if (!isAllowedEmail(currentUser.email)) {
+          console.warn(`User ${currentUser.email} is not from @${ALLOWED_DOMAIN}. Signing out.`);
+          await signOut(auth);
+          localStorage.removeItem('google_access_token');
+          setUser(null);
+          showToast(`Access Restricted: Only @${ALLOWED_DOMAIN} accounts are authorized to access this hub.`, 'error');
+        } else {
+          setUser(currentUser);
+        }
+      } else {
+        setUser(null);
+      }
       setIsAuthChecking(false);
     });
 
@@ -235,11 +307,22 @@ export default function App() {
     setIsLoggingIn(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
+      
+      // Strict Domain Validation: Only @gappify.com allowed
+      if (!isAllowedEmail(result.user.email)) {
+        await signOut(auth);
+        localStorage.removeItem('google_access_token');
+        setUser(null);
+        showToast(`Access Restricted: Login is limited to @${ALLOWED_DOMAIN} email accounts only. (${result.user.email} is not authorized)`, 'error');
+        return;
+      }
+
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         localStorage.setItem('google_access_token', credential.accessToken);
       }
-      showToast('Successfully authenticated with Google Workspace', 'success');
+      setUser(result.user);
+      showToast(`Welcome ${result.user.displayName || result.user.email}! Authenticated with Gappify Workspace.`, 'success');
     } catch (error: any) {
       console.error('Login error', error);
       if (error.code === 'auth/unauthorized-domain') {
@@ -274,23 +357,37 @@ export default function App() {
 
     const targetFlow = flows.find(f => f.id === flowId);
     const flowName = targetFlow?.name || 'Selected Flow';
+    const resolvedCache = getLocalResolvedCache();
+
+    // If flow is already resolved, don't synthesize false errors
+    if (resolvedCache.resolvedFlowIds[flowId] || targetFlow?.unresolvedErrors === 0) {
+      setErrors(prev => prev.filter(e => e.flowId !== flowId));
+      return;
+    }
 
     try {
       const res = await fetchFlowErrors(flowId);
       if (res.connected && res.errors && res.errors.length > 0) {
+        const activeResErrors = res.errors.filter((e: CeligoErrorRecord) => {
+          if (resolvedCache.resolvedFlowIds[flowId]) return false;
+          if (e.id && resolvedCache.resolvedErrorIds[e.id]) return false;
+          if (e.retryDataKey && resolvedCache.resolvedErrorIds[e.retryDataKey]) return false;
+          return true;
+        });
+
         setErrors(prev => {
           const others = prev.filter(e => e.flowId !== flowId);
-          return [...others, ...res.errors];
+          return [...others, ...activeResErrors];
         });
-        showToast(`Loaded ${res.errors.length} detailed error records for "${flowName}"`, 'success');
-      } else {
-        // If detailed step errors API didn't return items but the flow has errors, synthesize an actionable record
+        if (activeResErrors.length > 0) {
+          showToast(`Loaded ${activeResErrors.length} detailed error records for "${flowName}"`, 'success');
+        }
+      } else if ((targetFlow?.unresolvedErrors || 0) > 0 && !resolvedCache.resolvedFlowIds[flowId]) {
+        // If detailed step errors API didn't return items but the flow genuinely has unresolved errors
         setErrors(prev => {
           const existing = prev.find(e => e.flowId === flowId);
           if (!existing) {
-            const errCount = (targetFlow?.unresolvedErrors || 0) > 0 
-              ? targetFlow?.unresolvedErrors 
-              : (targetFlow?.errorCount24h || 1);
+            const errCount = targetFlow?.unresolvedErrors || 1;
             
             const syntheticRecord: CeligoErrorRecord = {
               id: `flow_${flowId}_err`,
@@ -365,13 +462,14 @@ export default function App() {
       });
 
       if (res.success) {
+        saveToLocalResolvedCache(errorRecord.flowId, [errorId, retryKey]);
         setWaitingState({
           isOpen: true,
           action: 'retry',
           isBatch: false,
           flowId: errorRecord.flowId || '',
           stepId,
-          errorIds: [retryKey],
+          errorIds: [retryKey, errorId],
         });
       } else {
         showToast(`Retry failed: ${res.message}`, 'error');
@@ -400,13 +498,14 @@ export default function App() {
       });
 
       if (res.success) {
+        saveToLocalResolvedCache(flowId, [...errorIds, ...retryDataKeys]);
         setWaitingState({
           isOpen: true,
           action: 'retry',
           isBatch: true,
           flowId: flowId || '',
           stepId,
-          errorIds: retryDataKeys,
+          errorIds: retryDataKeys.length > 0 ? retryDataKeys : errorIds,
         });
       } else {
         showToast(`Batch retry failed: ${res.message}`, 'error');
@@ -433,6 +532,7 @@ export default function App() {
       });
 
       if (res.success) {
+        saveToLocalResolvedCache(errorRecord.flowId, [errorId]);
         setWaitingState({
           isOpen: true,
           action: 'resolve',
@@ -473,6 +573,7 @@ export default function App() {
       });
 
       if (res.success) {
+        saveToLocalResolvedCache(flowId, errorIds);
         setWaitingState({
           isOpen: true,
           action: 'resolve',
@@ -494,12 +595,13 @@ export default function App() {
     if (success) {
       const { errorIds, flowId, action, isBatch, purgeFlag } = waitingState;
       
+      saveToLocalResolvedCache(flowId, errorIds);
       const updatedErrorIds = new Set(errorIds);
 
       setErrors(prev =>
         prev.map(e => {
           const matchId = action === 'retry' ? (e.retryDataKey || e.id || '') : (e.id || '');
-          if (updatedErrorIds.has(matchId)) {
+          if (updatedErrorIds.has(matchId) || (e.id && updatedErrorIds.has(e.id))) {
             return {
               ...e, 
               status: 'resolved', 
@@ -513,7 +615,7 @@ export default function App() {
 
       if (flowId) {
         setFlows(prev =>
-          prev.map(f => f.id === flowId ? { ...f, unresolvedErrors: Math.max(0, (f.unresolvedErrors || 0) - errorIds.length) } : f)
+          prev.map(f => f.id === flowId ? { ...f, unresolvedErrors: 0, status: 'healthy' } : f)
         );
       }
 
