@@ -1,5 +1,5 @@
 import express from 'express';
-import { apiRouter } from '../src/server/apiHandler';
+import { apiRouter } from '../src/server/apiHandler.js';
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));

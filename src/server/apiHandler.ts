@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { analyzeCeligoErrorWithGemini, chatWithCeligoCopilot } from './geminiService';
+import { analyzeCeligoErrorWithGemini, chatWithCeligoCopilot } from './geminiService.js';
 
 export const apiRouter = express.Router();
 
