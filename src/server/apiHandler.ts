@@ -17,7 +17,8 @@ apiRouter.use(express.json());
 
 /**
  * Format valid Celigo integrator.io flow URL matching:
- * https://integrator.io/integrations/:integrationId/flows/sections/:sectionId/flowBuilder/:flowId#build
+ * With section: https://integrator.io/integrations/:integrationId/flows/sections/:sectionId/flowBuilder/:flowId#build
+ * Without section: https://integrator.io/integrations/:integrationId/flowBuilder/:flowId#build
  */
 export function formatCeligoFlowUrl(
   host: string = 'integrator.io',
@@ -32,7 +33,7 @@ export function formatCeligoFlowUrl(
     return `https://${cleanHost}/integrations/${integrationId}/flows/sections/${sectionId}/flowBuilder/${flowId}#build`;
   }
   if (integrationId && flowId) {
-    return `https://${cleanHost}/integrations/${integrationId}/flows/flowBuilder/${flowId}#build`;
+    return `https://${cleanHost}/integrations/${integrationId}/flowBuilder/${flowId}#build`;
   }
   if (flowId) {
     return `https://${cleanHost}/flows/flowBuilder/${flowId}#build`;

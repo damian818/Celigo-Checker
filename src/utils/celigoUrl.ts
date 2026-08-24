@@ -1,11 +1,11 @@
 /**
  * Utility for constructing and formatting valid Celigo integrator.io flow and integration URLs.
  * 
- * Standard format:
+ * Standard format with sections:
  * https://integrator.io/integrations/:integrationId/flows/sections/:sectionId/flowBuilder/:flowId#build
  * 
- * Or if sectionId does not exist:
- * https://integrator.io/integrations/:integrationId/flows/flowBuilder/:flowId#build
+ * Standard format without sections:
+ * https://integrator.io/integrations/:integrationId/flowBuilder/:flowId#build
  */
 
 export interface CeligoUrlParams {
@@ -24,8 +24,8 @@ export interface CeligoUrlParams {
 
 /**
  * Builds a valid Celigo integrator.io Flow Builder URL.
- * Follows the pattern:
- * https://integrator.io/integrations/{integrationId}/flows/sections/{sectionId}/flowBuilder/{flowId}#build
+ * - When sections exist: https://integrator.io/integrations/{integrationId}/flows/sections/{sectionId}/flowBuilder/{flowId}#build
+ * - When no sections: https://integrator.io/integrations/{integrationId}/flowBuilder/{flowId}#build
  */
 export function buildCeligoFlowUrl(
   input?: CeligoUrlParams | string | null,
@@ -40,21 +40,27 @@ export function buildCeligoFlowUrl(
   // If input is a raw URL string
   if (typeof input === 'string') {
     if (input.startsWith('http://') || input.startsWith('https://')) {
-      // If it already matches the full flowBuilder pattern with #build, return as is
-      if (input.includes('/flowBuilder/') && input.includes('#build')) {
-        return input;
+      let cleanedUrl = input;
+      // Fix incorrectly generated /integrations/:id/flows/flowBuilder/:id -> /integrations/:id/flowBuilder/:id
+      if (cleanedUrl.includes('/integrations/') && cleanedUrl.includes('/flows/flowBuilder/')) {
+        cleanedUrl = cleanedUrl.replace('/flows/flowBuilder/', '/flowBuilder/');
+      }
+
+      // If it already matches the full flowBuilder pattern with #build, return the sanitized URL
+      if (cleanedUrl.includes('/flowBuilder/') && cleanedUrl.includes('#build')) {
+        return cleanedUrl;
       }
       
       // If it's an old legacy URL or partial URL, extract IDs and rewrite
       try {
-        const url = new URL(input);
+        const url = new URL(cleanedUrl);
         const host = url.host || 'integrator.io';
         
         // Extract integrationId, sectionId, flowId using regex
-        const intgMatch = input.match(/\/integrations\/([a-zA-Z0-9_-]+)/);
-        const sectionMatch = input.match(/\/sections\/([a-zA-Z0-9_-]+)/);
-        const flowBuilderMatch = input.match(/\/flowBuilder\/([a-zA-Z0-9_-]+)/);
-        const flowsMatch = input.match(/\/flows\/([a-zA-Z0-9_-]+)/);
+        const intgMatch = cleanedUrl.match(/\/integrations\/([a-zA-Z0-9_-]+)/);
+        const sectionMatch = cleanedUrl.match(/\/sections\/([a-zA-Z0-9_-]+)/);
+        const flowBuilderMatch = cleanedUrl.match(/\/flowBuilder\/([a-zA-Z0-9_-]+)/);
+        const flowsMatch = cleanedUrl.match(/\/flows\/([a-zA-Z0-9_-]+)/);
 
         const extractedIntg = intgMatch?.[1] || fallbackIntegrationId;
         const extractedSection = sectionMatch?.[1] || fallbackSectionId;
@@ -64,14 +70,14 @@ export function buildCeligoFlowUrl(
           return `https://${host}/integrations/${extractedIntg}/flows/sections/${extractedSection}/flowBuilder/${extractedFlow}#build`;
         }
         if (extractedIntg && extractedFlow) {
-          return `https://${host}/integrations/${extractedIntg}/flows/flowBuilder/${extractedFlow}#build`;
+          return `https://${host}/integrations/${extractedIntg}/flowBuilder/${extractedFlow}#build`;
         }
         if (extractedFlow) {
           return `https://${host}/flows/flowBuilder/${extractedFlow}#build`;
         }
-        return input;
+        return cleanedUrl;
       } catch {
-        return input;
+        return cleanedUrl;
       }
     }
 
@@ -84,7 +90,7 @@ export function buildCeligoFlowUrl(
       return `https://integrator.io/integrations/${intgId}/flows/sections/${sectId}/flowBuilder/${flowId}#build`;
     }
     if (intgId) {
-      return `https://integrator.io/integrations/${intgId}/flows/flowBuilder/${flowId}#build`;
+      return `https://integrator.io/integrations/${intgId}/flowBuilder/${flowId}#build`;
     }
     return `https://integrator.io/flows/flowBuilder/${flowId}#build`;
   }
@@ -96,9 +102,15 @@ export function buildCeligoFlowUrl(
   const integrationId = obj.integrationId || obj._integrationId || obj._integration_id || obj.integration?._id || fallbackIntegrationId || '';
   const sectionId = obj._flowGroupingId || obj._apiGroupingId || obj.sectionId || obj._sectionId || obj._section_id || obj.section || obj.sections?.[0]?._id || fallbackSectionId || '';
 
-  // If object already has a precomputed celigoUrl that is already in valid modern format
-  if (obj.celigoUrl && typeof obj.celigoUrl === 'string' && obj.celigoUrl.includes('/flowBuilder/') && obj.celigoUrl.includes('#build')) {
-    return obj.celigoUrl;
+  // If object already has a precomputed celigoUrl
+  if (obj.celigoUrl && typeof obj.celigoUrl === 'string') {
+    let existingUrl = obj.celigoUrl;
+    if (existingUrl.includes('/integrations/') && existingUrl.includes('/flows/flowBuilder/')) {
+      existingUrl = existingUrl.replace('/flows/flowBuilder/', '/flowBuilder/');
+    }
+    if (existingUrl.includes('/flowBuilder/') && existingUrl.includes('#build')) {
+      return existingUrl;
+    }
   }
 
   // Construct according to precedence rules:
@@ -107,7 +119,7 @@ export function buildCeligoFlowUrl(
   }
 
   if (integrationId && flowId) {
-    return `https://${host}/integrations/${integrationId}/flows/flowBuilder/${flowId}#build`;
+    return `https://${host}/integrations/${integrationId}/flowBuilder/${flowId}#build`;
   }
 
   if (flowId) {
