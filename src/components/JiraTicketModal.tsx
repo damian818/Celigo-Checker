@@ -25,6 +25,7 @@ import confetti from 'canvas-confetti';
 import { CeligoErrorRecord, JiraTicket } from '../types/celigo';
 import { createJiraTicket, getJiraStatus } from '../services/apiClient';
 import { buildCeligoFlowUrl } from '../utils/celigoUrl';
+import { auth } from '../services/firebase';
 import {
   identifyFlowType,
   getCompanyNameOrIntegration,
@@ -46,12 +47,14 @@ import {
 
 interface JiraTicketModalProps {
   error: CeligoErrorRecord;
+  userEmail?: string;
   onClose: () => void;
   onTicketCreated: (ticket: JiraTicket, errorId: string) => void;
 }
 
 export const JiraTicketModal: React.FC<JiraTicketModalProps> = ({
   error,
+  userEmail,
   onClose,
   onTicketCreated,
 }) => {
@@ -89,8 +92,9 @@ export const JiraTicketModal: React.FC<JiraTicketModalProps> = ({
   const [assigneeName, setAssigneeName] = useState<string>(JIRA_ASSIGNEE_DEFAULT.name);
   const [assigneeEmail, setAssigneeEmail] = useState<string>(JIRA_ASSIGNEE_DEFAULT.email);
 
-  // Reporter
-  const [reporter, setReporter] = useState<string>('damian@gappify.com');
+  // Reporter: Always defaults to logged-in user's email
+  const loggedInUserEmail = userEmail || auth.currentUser?.email || 'damian@gappify.com';
+  const [reporter, setReporter] = useState<string>(loggedInUserEmail);
 
   // Labels
   const [labels, setLabels] = useState<string>(

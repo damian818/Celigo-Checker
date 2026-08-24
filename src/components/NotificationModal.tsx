@@ -12,6 +12,7 @@ import {
 import { CeligoErrorRecord } from '../types/celigo';
 import { sendGChatAlert, sendGmailAlert } from '../services/apiClient';
 import { getStoredTokens } from '../services/tokenStorage';
+import { buildCeligoFlowUrl } from '../utils/celigoUrl';
 import { 
   DEFAULT_GCHAT_TEMPLATE, 
   DEFAULT_GMAIL_SUBJECT, 
@@ -70,14 +71,18 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           throw new Error('Please enter a valid Google Chat Webhook URL starting with https://chat.googleapis.com/...');
         }
 
+        const flowUrl = buildCeligoFlowUrl(error);
+
         await sendGChatAlert({
-          title: `${error.recordIdentifier} failed in ${error.flowName}`,
+          title: `${error.recordIdentifier || error.id} failed in ${error.flowName}`,
           severity: error.severity,
           flowName: error.flowName,
           errorSummary: error.plainEnglishSummary,
           actionableStep: error.rootCauseSimple,
           cliCommand: error.suggestedCliCommand,
           spaceName: gchatSpace.trim(),
+          customText: customGchatMsg,
+          flowUrl,
         });
       }
 
@@ -87,12 +92,15 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           throw new Error('Please enter at least one recipient email address for Gmail alerts.');
         }
 
+        const flowUrl = buildCeligoFlowUrl(error);
+
         await sendGmailAlert({
           recipients: recipientsList,
           subject: customGmailSubject || `[Celigo ${error.severity.toUpperCase()}] ${error.flowName} - ${error.recordIdentifier}`,
           bodyHtml: customGmailBody || `<h3>Celigo Integration Alert</h3><p>${error.plainEnglishSummary}</p><p><b>Action:</b> ${error.actionRequiredBy}</p>`,
           severity: error.severity,
           flowName: error.flowName,
+          flowUrl,
         });
       }
 

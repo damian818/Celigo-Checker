@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { CeligoErrorRecord } from '../types/celigo';
+import { buildCeligoFlowUrl } from '../utils/celigoUrl';
 
 export interface UserSettings {
   userId: string;
@@ -14,6 +15,7 @@ export interface UserSettings {
   gmailSubjectTemplate?: string;
   gmailBodyTemplate?: string;
   autoSyncIntervalMinutes?: number;
+  lastSyncTimestamp?: number;
   updatedAt?: string;
 }
 
@@ -25,6 +27,7 @@ export const DEFAULT_GCHAT_TEMPLATE = `🚨 *[Celigo {{severity}}] Incident Aler
 *Summary:* {{plainEnglishSummary}}
 *Root Cause:* {{rootCauseSimple}}
 *Action Required:* {{actionRequiredBy}}
+*Flow Link:* {{celigoFlowUrl}}
 *Timestamp:* {{occurredAt}}`;
 
 export const DEFAULT_GMAIL_SUBJECT = `[Celigo {{severity}}] Incident in {{flowName}} - {{recordIdentifier}}`;
@@ -71,6 +74,12 @@ export const DEFAULT_GMAIL_BODY = `<div style="font-family: -apple-system, Blink
       <div style="margin-top: 6px; font-size: 12px; color: #991b1b;">Responsible Team: <strong>{{actionRequiredBy}}</strong></div>
     </div>
 
+    <div style="margin: 22px 0 16px 0; text-align: center;">
+      <a href="{{celigoFlowUrl}}" target="_blank" rel="noopener noreferrer" style="background-color: #4f46e5; color: #ffffff; padding: 11px 22px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);">
+        🔗 Open Flow in Celigo Builder ➔
+      </a>
+    </div>
+
     <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #f1f5f9; font-size: 11px; color: #94a3b8; text-align: center;">
       Dispatched via Gappify Celigo Remediation Hub • Real-Time Synchronization Across Devices
     </div>
@@ -79,6 +88,7 @@ export const DEFAULT_GMAIL_BODY = `<div style="font-family: -apple-system, Blink
 
 export const TEMPLATE_VARIABLES = [
   { token: '{{flowName}}', label: 'Flow Name', desc: 'e.g. NetSuite to Salesforce Customer Sync' },
+  { token: '{{celigoFlowUrl}}', label: 'Celigo Flow URL', desc: 'Direct link to Flow in Celigo integrator.io' },
   { token: '{{recordIdentifier}}', label: 'Record ID / Code', desc: 'e.g. SO-849204, CUST-1049' },
   { token: '{{severity}}', label: 'Severity Level', desc: 'CRITICAL, HIGH, MEDIUM, LOW' },
   { token: '{{environment}}', label: 'Environment', desc: 'Production or Sandbox' },
@@ -94,8 +104,10 @@ export const TEMPLATE_VARIABLES = [
  */
 export function interpolateTemplate(template: string, error: CeligoErrorRecord): string {
   if (!template) return '';
+  const flowUrl = buildCeligoFlowUrl(error);
   return template
     .replace(/\{\{flowName\}\}/g, error.flowName || 'Integration Flow')
+    .replace(/\{\{celigoFlowUrl\}\}/g, flowUrl)
     .replace(/\{\{recordIdentifier\}\}/g, error.recordIdentifier || error.id || 'N/A')
     .replace(/\{\{severity\}\}/g, (error.severity || 'HIGH').toUpperCase())
     .replace(/\{\{environment\}\}/g, error.environment === 'sandbox' ? 'Sandbox' : 'Production')

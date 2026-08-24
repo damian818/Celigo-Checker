@@ -92,6 +92,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   flows,
   errors,
   onSelectFlow,
+  onSelectError,
+  onOpenJiraModal,
+  onOpenRemediationModal,
+  onOpenNotificationModal,
   onSwitchTab,
   onRefreshLive,
   onQuickRetry,
@@ -933,6 +937,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onNavigateToErrors={handleNavigateToErrors}
           onQuickRetry={onQuickRetry}
           onQuickResolve={onQuickResolve}
+          onOpenJiraModal={onOpenJiraModal}
+          onOpenNotificationModal={onOpenNotificationModal}
         />
       )}
     </div>

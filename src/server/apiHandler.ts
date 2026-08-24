@@ -614,16 +614,25 @@ apiRouter.post('/jira/create-ticket', async (req: Request, res: Response) => {
 // 4. Google Chat Notification Dispatch
 apiRouter.post('/notifications/send-gchat', async (req: Request, res: Response) => {
   try {
-    const { title, severity, flowName, errorSummary, actionableStep, cliCommand, spaceName } = req.body;
+    const { title, severity, flowName, errorSummary, actionableStep, cliCommand, spaceName, customText, flowUrl } = req.body;
 
-    const gchatCardV2 = {
+    const targetUrl = (flowUrl && flowUrl.startsWith('http')) ? flowUrl : 'https://integrator.io';
+
+    const plainTextFallback = customText || `🚨 *[Celigo ${(severity || 'HIGH').toUpperCase()}] ${title || 'Incident Alert'}*\n` +
+      `*Flow:* ${flowName || 'Integration'}\n` +
+      `*Summary:* ${errorSummary || 'Data synchronization failure'}\n` +
+      `*Action:* ${actionableStep || 'Review in Celigo'}\n` +
+      `*Flow Link:* ${targetUrl}`;
+
+    const gchatPayload = {
+      text: plainTextFallback,
       cardsV2: [
         {
           cardId: `celigo_alert_${Date.now()}`,
           card: {
             header: {
-              title: `🚨 [Celigo ${severity.toUpperCase()}] ${title}`,
-              subtitle: `Flow: ${flowName} • Detected at ${new Date().toLocaleTimeString()}`,
+              title: `🚨 [Celigo ${(severity || 'HIGH').toUpperCase()}] ${title || 'Incident Alert'}`,
+              subtitle: `Flow: ${flowName || 'Integration'} • Detected at ${new Date().toLocaleTimeString()}`,
               imageUrl: 'https://cdn.iconscout.com/icon/free/png-256/free-celigo-3628711-3030104.png',
               imageType: 'SQUARE',
             },
@@ -633,32 +642,32 @@ apiRouter.post('/notifications/send-gchat', async (req: Request, res: Response) 
                 widgets: [
                   {
                     textParagraph: {
-                      text: `<b>What Happened:</b> ${errorSummary}`,
+                      text: `<b>What Happened:</b> ${errorSummary || 'Data synchronization failure'}`,
                     },
                   },
                   {
                     textParagraph: {
-                      text: `<b>Actionable Fix:</b> ${actionableStep}`,
+                      text: `<b>Actionable Fix:</b> ${actionableStep || 'Review and remediate'}`,
                     },
                   },
                 ],
               },
               {
-                header: 'Celigo CLI Remediation',
+                header: 'Celigo Remediation & Direct Flow Link',
                 widgets: [
                   {
                     textParagraph: {
-                      text: `<code>${cliCommand || 'celigo flows:retry-errors --flowId ' + flowName}</code>`,
+                      text: `<code>${cliCommand || 'celigo flows:retry-errors --flowId ' + (flowName || 'flow')}</code>`,
                     },
                   },
                   {
                     buttonList: {
                       buttons: [
                         {
-                          text: 'Open in Celigo Hub',
+                          text: 'Open in Celigo Flow Builder',
                           onClick: {
                             openLink: {
-                              url: 'https://integrator.io',
+                              url: targetUrl,
                             },
                           },
                         },
@@ -673,27 +682,29 @@ apiRouter.post('/notifications/send-gchat', async (req: Request, res: Response) 
       ],
     };
 
-    if (spaceName && spaceName.startsWith('https://chat.googleapis.com/v1/spaces/')) {
-      const gchatRes = await fetch(spaceName, {
+    const webhookUrl = (spaceName || '').trim();
+    if (webhookUrl && (webhookUrl.includes('chat.googleapis.com') || webhookUrl.startsWith('http'))) {
+      const gchatRes = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(gchatCardV2)
+        body: JSON.stringify(gchatPayload)
       });
       if (!gchatRes.ok) {
-        console.error('GChat API responded with error:', await gchatRes.text());
-        throw new Error('Failed to send webhook to Google Chat');
+        const errText = await gchatRes.text();
+        console.error('GChat API webhook error response:', gchatRes.status, errText);
+        return res.status(400).json({ error: `Google Chat webhook returned ${gchatRes.status}: ${errText || gchatRes.statusText}` });
       }
     }
 
     return res.json({
       success: true,
-      deliveredTo: spaceName || 'Google Chat (#integrations-alerts)',
+      deliveredTo: webhookUrl || 'Google Chat (#integrations-alerts)',
       dispatchedAt: new Date().toISOString(),
-      cardPreview: gchatCardV2,
+      cardPreview: gchatPayload,
     });
   } catch (error: any) {
     console.error('Error sending GChat notification:', error);
-    return res.status(500).json({ error: 'Failed to send GChat notification' });
+    return res.status(500).json({ error: error.message || 'Failed to send GChat notification' });
   }
 });
 

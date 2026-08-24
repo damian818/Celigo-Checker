@@ -1,5 +1,6 @@
 import { CeligoErrorRecord, JiraTicket, NotificationPayload } from '../types/celigo';
 import { getCeligoHeaders } from './tokenStorage';
+import { refreshGoogleAccessToken } from './firebase';
 
 export interface AnalysisResponse {
   plainEnglishSummary: string;
@@ -130,6 +131,8 @@ export async function sendGChatAlert(payload: {
   actionableStep: string;
   cliCommand?: string;
   spaceName?: string;
+  customText?: string;
+  flowUrl?: string;
 }) {
   const response = await fetch('/api/notifications/send-gchat', {
     method: 'POST',
@@ -138,7 +141,8 @@ export async function sendGChatAlert(payload: {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to send Google Chat alert: ${response.statusText}`);
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to send Google Chat alert: ${response.statusText}`);
   }
 
   return await response.json();
@@ -150,43 +154,73 @@ export async function sendGmailAlert(payload: {
   bodyHtml: string;
   severity: string;
   flowName: string;
+  flowUrl?: string;
 }) {
-  const token = localStorage.getItem('google_access_token');
+  let token = localStorage.getItem('google_access_token');
+  
   if (!token) {
-    throw new Error('Google Workspace OAuth token not found. Please log in first.');
+    // Attempt automatic token acquisition
+    try {
+      token = await refreshGoogleAccessToken();
+    } catch (err: any) {
+      throw new Error(`Google Workspace authentication required: ${err.message || 'Please log in with your @gappify.com account.'}`);
+    }
   }
 
-  // Construct raw RFC 2822 email
-  const to = payload.recipients.join(', ');
-  const emailLines = [
-    `To: ${to}`,
-    'Content-Type: text/html; charset="UTF-8"',
-    'MIME-Version: 1.0',
-    `Subject: ${payload.subject}`,
-    '',
-    payload.bodyHtml
-  ];
-  const email = emailLines.join('\n');
-  const base64EncodedEmail = btoa(unescape(encodeURIComponent(email)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+  // Helper to construct raw RFC 2822 email
+  const constructRawEmail = () => {
+    const to = payload.recipients.join(', ');
+    const emailLines = [
+      `To: ${to}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      'MIME-Version: 1.0',
+      `Subject: ${payload.subject}`,
+      '',
+      payload.bodyHtml
+    ];
+    const email = emailLines.join('\n');
+    return btoa(unescape(encodeURIComponent(email)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  };
 
-  const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      raw: base64EncodedEmail
-    })
-  });
+  const sendRequest = async (accessToken: string) => {
+    return await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        raw: constructRawEmail()
+      })
+    });
+  };
+
+  let response = await sendRequest(token);
+
+  // If 401 Unauthorized (expired token), automatically refresh and retry once
+  if (response.status === 401) {
+    console.warn('[Gmail API] Access token expired (401). Requesting refreshed token...');
+    try {
+      token = await refreshGoogleAccessToken();
+      response = await sendRequest(token);
+    } catch (refreshErr: any) {
+      console.error('[Gmail API] Token refresh failed:', refreshErr);
+      throw new Error('Google OAuth session expired. Please re-authenticate your @gappify.com account to send emails.');
+    }
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Gmail API Error:', errorText);
-    throw new Error(`Failed to send Gmail alert: ${response.statusText}`);
+    console.error('Gmail API Error Response:', response.status, errorText);
+    let detailedMsg = response.statusText;
+    try {
+      const parsed = JSON.parse(errorText);
+      detailedMsg = parsed.error?.message || detailedMsg;
+    } catch {}
+    throw new Error(`Gmail API error (${response.status}): ${detailedMsg}`);
   }
 
   return await response.json();

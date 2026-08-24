@@ -99,5 +99,21 @@ export function isAllowedEmail(email?: string | null): boolean {
   return normalized.endsWith(`@${ALLOWED_DOMAIN}`);
 }
 
+/**
+ * Re-authenticate / refresh Google OAuth access token for Gmail and Google Workspace APIs
+ */
+export async function refreshGoogleAccessToken(): Promise<string> {
+  const result = await signInWithPopup(auth, googleProvider);
+  if (!isAllowedEmail(result.user.email)) {
+    throw new Error(`Unauthorized email account (${result.user.email}). Only @${ALLOWED_DOMAIN} is permitted.`);
+  }
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  if (!credential?.accessToken) {
+    throw new Error('Could not obtain Google Workspace access token. Please grant Gmail permissions.');
+  }
+  localStorage.setItem('google_access_token', credential.accessToken);
+  return credential.accessToken;
+}
+
 // Export types
 export type { User };

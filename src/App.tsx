@@ -36,7 +36,7 @@ import {
 import { buildCeligoFlowUrl } from './utils/celigoUrl';
 import { auth, googleProvider, isAllowedEmail, ALLOWED_DOMAIN, testFirestoreConnection } from './services/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
-import { subscribeToUserSettings } from './services/userSettingsService';
+import { subscribeToUserSettings, saveUserSettings } from './services/userSettingsService';
 import { saveTokens } from './services/tokenStorage';
 import {
   identifyFlowType,
@@ -314,7 +314,14 @@ export default function App() {
           showToast(`✓ Synced ${fetchedFlows.length} flows (${prodFlows} Prod, ${sbxFlows} Sandbox) & ${fetchedErrors.length} errors from Celigo!`, 'success');
         }
 
-        // Reset next sync timer countdown
+        // Persist real-world sync timestamp so interval survives page reloads and device switches
+        const currentSyncTime = Date.now();
+        localStorage.setItem('celigo_last_sync_timestamp', String(currentSyncTime));
+        if (user?.uid) {
+          saveUserSettings(user.uid, { lastSyncTimestamp: currentSyncTime }).catch(console.error);
+        }
+
+        // Calculate accurate remaining countdown
         setNextSyncSecondsRemaining(autoSyncIntervalMinutes * 60);
 
         // Brief delay before smoothly closing modal so user sees the 100% completion
@@ -352,28 +359,61 @@ export default function App() {
     }
   };
 
-  // Automatic Background Periodic Sync Timer (every 30 minutes or selected interval)
+  // Persistent 24/7 Background Periodic Sync & Countdown (survives page reloads & browser restarts)
   useEffect(() => {
     if (!user) return;
 
-    const timer = setInterval(() => {
-      setNextSyncSecondsRemaining(prev => {
-        if (prev <= 1) {
-          // Perform automatic background sync
-          syncCeligoData(false);
-          return autoSyncIntervalMinutes * 60;
-        }
-        return prev - 1;
-      });
+    const checkAndSync = () => {
+      const storedLastSync = Number(localStorage.getItem('celigo_last_sync_timestamp') || 0);
+      const intervalMs = autoSyncIntervalMinutes * 60 * 1000;
+      const now = Date.now();
+
+      if (!storedLastSync || (now - storedLastSync) >= intervalMs) {
+        // Scheduled interval has elapsed — run background synchronization
+        setNextSyncSecondsRemaining(0);
+        syncCeligoData(false);
+      } else {
+        const remainingMs = Math.max(0, intervalMs - (now - storedLastSync));
+        setNextSyncSecondsRemaining(Math.ceil(remainingMs / 1000));
+      }
+    };
+
+    // Run check immediately on mount or tab focus
+    checkAndSync();
+
+    const intervalTimer = setInterval(() => {
+      const storedLastSync = Number(localStorage.getItem('celigo_last_sync_timestamp') || 0);
+      const intervalMs = autoSyncIntervalMinutes * 60 * 1000;
+      const now = Date.now();
+
+      if (!storedLastSync || (now - storedLastSync) >= intervalMs) {
+        checkAndSync();
+      } else {
+        const remainingMs = Math.max(0, intervalMs - (now - storedLastSync));
+        setNextSyncSecondsRemaining(Math.ceil(remainingMs / 1000));
+      }
     }, 1000);
 
-    return () => clearInterval(timer);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkAndSync();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [user, autoSyncIntervalMinutes]);
 
-  // Reset countdown when interval setting is changed
-  useEffect(() => {
-    setNextSyncSecondsRemaining(autoSyncIntervalMinutes * 60);
-  }, [autoSyncIntervalMinutes]);
+  const handleChangeAutoSyncInterval = (minutes: number) => {
+    setAutoSyncIntervalMinutes(minutes);
+    if (user?.uid) {
+      saveUserSettings(user.uid, { autoSyncIntervalMinutes: minutes }).catch(console.error);
+    }
+    showToast(`Auto-sync frequency updated to every ${minutes} minutes.`, 'info');
+  };
 
   const formatCountdown = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -923,10 +963,7 @@ export default function App() {
         nextSyncCountdown={formatCountdown(nextSyncSecondsRemaining)}
         notificationsEnabled={notificationsEnabled}
         onRequestNotificationPermission={handleRequestNotificationPermission}
-        onChangeAutoSyncInterval={(mins) => {
-          setAutoSyncIntervalMinutes(mins);
-          showToast(`Auto-sync interval set to every ${mins} minutes`, 'info');
-        }}
+        onChangeAutoSyncInterval={handleChangeAutoSyncInterval}
       />
 
       {/* Main Container */}
@@ -1065,6 +1102,7 @@ export default function App() {
       {selectedErrorForJira && (
         <JiraTicketModal
           error={selectedErrorForJira}
+          userEmail={user?.email || undefined}
           onClose={() => setSelectedErrorForJira(null)}
           onTicketCreated={handleJiraTicketCreated}
         />

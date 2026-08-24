@@ -13,7 +13,10 @@ import {
   Sparkles,
   Bot,
   Trash2,
-  Tag
+  Tag,
+  Send,
+  FileText,
+  MessageSquare
 } from 'lucide-react';
 import { CeligoErrorRecord, CeligoFlow, CeligoIntegration } from '../types/celigo';
 import {
@@ -43,6 +46,8 @@ interface ErrorSummaryModalProps {
   onNavigateToErrors: (flowId?: string) => void;
   onQuickRetry?: (errorId: string) => void;
   onQuickResolve?: (errorId: string, purge?: boolean) => void;
+  onOpenJiraModal?: (error: CeligoErrorRecord) => void;
+  onOpenNotificationModal?: (error: CeligoErrorRecord) => void;
 }
 
 export const ErrorSummaryModal: React.FC<ErrorSummaryModalProps> = ({
@@ -54,6 +59,8 @@ export const ErrorSummaryModal: React.FC<ErrorSummaryModalProps> = ({
   onNavigateToErrors,
   onQuickRetry,
   onQuickResolve,
+  onOpenJiraModal,
+  onOpenNotificationModal,
 }) => {
   if (!isOpen) return null;
 
@@ -273,6 +280,61 @@ export const ErrorSummaryModal: React.FC<ErrorSummaryModalProps> = ({
                           Code: {item.rawErrorCode}
                         </span>
                       )}
+
+                      {/* Action Bar for this Error Pattern */}
+                      <div className="flex items-center gap-2 pt-2 mt-2 border-t border-slate-800/80 flex-wrap">
+                        {onOpenNotificationModal && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onOpenNotificationModal(item.records[0]);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-600 text-purple-300 hover:text-white border border-purple-500/30 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                            title="Dispatch Google Chat card or Gmail alert for this error"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Notify Team</span>
+                          </button>
+                        )}
+
+                        {onOpenJiraModal && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onOpenJiraModal(item.records[0]);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-500/30 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                            title="Create Jira Cloud ticket for Space GS with logged-in reporter"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>Create JIRA</span>
+                          </button>
+                        )}
+
+                        {item.canRetry && onQuickRetry && (
+                          <button
+                            type="button"
+                            onClick={() => onQuickRetry(item.records[0].id)}
+                            className="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <Zap className="w-3 h-3" />
+                            <span>Retry</span>
+                          </button>
+                        )}
+
+                        {item.canResolve && onQuickResolve && (
+                          <button
+                            type="button"
+                            onClick={() => onQuickResolve(item.records[0].id, true)}
+                            className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-300 hover:text-rose-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Resolve</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <button
@@ -280,7 +342,7 @@ export const ErrorSummaryModal: React.FC<ErrorSummaryModalProps> = ({
                         onClose();
                         onNavigateToErrors(item.flowId);
                       }}
-                      className="px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-semibold shrink-0 transition flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-semibold shrink-0 transition flex items-center gap-1 cursor-pointer self-start"
                     >
                       <span>Fix</span>
                       <ArrowRight className="w-3 h-3" />
