@@ -103,8 +103,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   syncStepMessage = '',
   onShowSyncModal,
 }) => {
-  // Filter States
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  // Filter States - Default to 'errors_only' (Needs Attention) and collapsed by default
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('errors_only');
   const [includePaused, setIncludePaused] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
@@ -144,12 +144,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     onSwitchTab('errors');
   };
 
-  // Toggle group collapse
+  // Toggle group collapse (default is collapsed)
   const toggleGroup = (id: string) => {
-    setCollapsedGroups(prev => ({ ...prev, [id]: !prev[id] }));
+    setCollapsedGroups(prev => {
+      const current = prev[id] !== undefined ? prev[id] : true;
+      return { ...prev, [id]: !current };
+    });
   };
 
-  const expandAll = () => setCollapsedGroups({});
+  const expandAll = () => {
+    const allExpanded: Record<string, boolean> = {};
+    groupedIntegrations.forEach(g => { allExpanded[g.id] = false; });
+    setCollapsedGroups(allExpanded);
+  };
+
   const collapseAll = () => {
     const allCollapsed: Record<string, boolean> = {};
     groupedIntegrations.forEach(g => { allCollapsed[g.id] = true; });
@@ -552,7 +560,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         /* GROUPED BY INTEGRATION VIEW */
         <div className="space-y-4">
           {groupedIntegrations.map((group) => {
-            const isCollapsed = Boolean(collapsedGroups[group.id]);
+            const isCollapsed = collapsedGroups[group.id] !== undefined ? collapsedGroups[group.id] : true;
             const isSbx = group.environment === 'sandbox';
             const hasErrors = group.totalErrors > 0;
 

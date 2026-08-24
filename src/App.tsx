@@ -13,8 +13,6 @@ import { CeligoErrorRecord, CeligoFlow, JiraTicket } from './types/celigo';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
 import { ErrorAnalysisView } from './components/ErrorAnalysisView';
-import { ChatbotView } from './components/ChatbotView';
-import { CliTerminalView } from './components/CliTerminalView';
 import { AutomatedRemediationModal } from './components/AutomatedRemediationModal';
 import { JiraTicketModal } from './components/JiraTicketModal';
 import { NotificationModal } from './components/NotificationModal';
@@ -44,8 +42,9 @@ import {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'errors' | 'chat' | 'cli'>('dashboard');
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'errors'>('dashboard');
   const [waitingState, setWaitingState] = useState<{
     isOpen: boolean;
     action: 'retry' | 'resolve';
@@ -226,6 +225,7 @@ export default function App() {
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      setIsAuthChecking(false);
     });
 
     return () => unsubscribe();
@@ -625,66 +625,170 @@ export default function App() {
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        {activeTab === 'dashboard' && (
-          <DashboardView
-            integrations={integrations}
-            flows={flows}
-            errors={errors}
-            onSelectFlow={handleSelectFlowForAnalysis}
-            onSelectError={(err) => setSelectedErrorForRemediation(err)}
-            onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
-            onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
-            onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
-            onSwitchTab={setActiveTab}
-            onQuickRetry={handleQuickRetry}
-            onQuickResolve={handleQuickResolve}
-            onBatchRetry={handleBatchRetry}
-            onBatchResolve={handleBatchResolve}
-            isLiveConnected={isLiveConnected}
-            dataSource={dataSource}
-            onRefreshLive={() => syncCeligoData(true)}
-            isSyncing={isSyncing}
-            syncProgress={syncProgress}
-            syncStepMessage={syncStepMessage}
-            onShowSyncModal={() => setShowSyncModal(true)}
-          />
-        )}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
+        {isAuthChecking ? (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+            <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm font-medium text-slate-400">Verifying Google Workspace session...</p>
+          </div>
+        ) : !user ? (
+          /* Google Workspace Required Login Gate */
+          <div className="max-w-2xl mx-auto my-8">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl space-y-8 text-center relative overflow-hidden">
+              <div className="absolute -top-24 -right-24 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
 
-        {activeTab === 'errors' && (
-          <ErrorAnalysisView
-            errors={errors}
-            flows={flows}
-            integrations={integrations}
-            selectedFlowFilter={selectedFlowFilter}
-            setSelectedFlowFilter={setSelectedFlowFilter}
-            onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
-            onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
-            onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
-            onQuickRetry={handleQuickRetry}
-            onBatchRetry={handleBatchRetry}
-            onQuickResolve={handleQuickResolve}
-            onBatchResolve={handleBatchResolve}
-            onRunInCli={handleRunInCli}
-            onIgnoreError={handleIgnoreError}
-            onUpdateError={handleUpdateError}
-            onUpdateGroup={handleUpdateGroup}
-            onAddErrors={handleAddErrors}
-          />
-        )}
+              {/* Logo / Badge */}
+              <div className="flex items-center justify-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center shadow-inner">
+                  <Zap className="w-6 h-6 text-indigo-400" />
+                </div>
+                <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center">
+                  <svg className="w-6 h-6" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                </div>
+              </div>
 
-        {activeTab === 'chat' && (
-          <ChatbotView
-            errors={errors}
-            flows={flows}
-            onRunCliCommand={handleRunInCli}
-          />
-        )}
+              {/* Title & Description */}
+              <div className="space-y-3">
+                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 inline-block">
+                  Authentication Required
+                </span>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                  Sign in to Celigo Incident Hub
+                </h2>
+                <p className="text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
+                  To protect integration credentials and live customer payloads, sign in with your corporate Google Workspace account before accessing the monitoring dashboard and error queues.
+                </p>
+              </div>
 
-        {activeTab === 'cli' && (
-          <CliTerminalView
-            initialCommand={cliInitialCommand}
-          />
+              {/* Sign In Button */}
+              <div className="pt-2 flex flex-col items-center justify-center gap-3">
+                <button
+                  onClick={handleGoogleLogin}
+                  disabled={isLoggingIn}
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  {isLoggingIn ? (
+                    <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                      />
+                    </svg>
+                  )}
+                  <span>{isLoggingIn ? 'Authenticating...' : 'Sign in with Google Workspace'}</span>
+                </button>
+              </div>
+
+              {/* Security & Features Checklist */}
+              <div className="pt-6 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Real-Time Health</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">Live monitoring of flows & sync velocity across environments.</p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Payload Triage</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">Inspect raw failed JSON payloads with 1-click batch retries.</p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Jira & Alerts</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">Automated incident tickets & Google Workspace notifications.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Authenticated Application Views */
+          <>
+            {activeTab === 'dashboard' && (
+              <DashboardView
+                integrations={integrations}
+                flows={flows}
+                errors={errors}
+                onSelectFlow={handleSelectFlowForAnalysis}
+                onSelectError={(err) => setSelectedErrorForRemediation(err)}
+                onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
+                onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
+                onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
+                onSwitchTab={setActiveTab}
+                onQuickRetry={handleQuickRetry}
+                onQuickResolve={handleQuickResolve}
+                onBatchRetry={handleBatchRetry}
+                onBatchResolve={handleBatchResolve}
+                isLiveConnected={isLiveConnected}
+                dataSource={dataSource}
+                onRefreshLive={() => syncCeligoData(true)}
+                isSyncing={isSyncing}
+                syncProgress={syncProgress}
+                syncStepMessage={syncStepMessage}
+                onShowSyncModal={() => setShowSyncModal(true)}
+              />
+            )}
+
+            {activeTab === 'errors' && (
+              <ErrorAnalysisView
+                errors={errors}
+                flows={flows}
+                integrations={integrations}
+                selectedFlowFilter={selectedFlowFilter}
+                setSelectedFlowFilter={setSelectedFlowFilter}
+                onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
+                onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
+                onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
+                onQuickRetry={handleQuickRetry}
+                onBatchRetry={handleBatchRetry}
+                onQuickResolve={handleQuickResolve}
+                onBatchResolve={handleBatchResolve}
+                onRunInCli={handleRunInCli}
+                onIgnoreError={handleIgnoreError}
+                onUpdateError={handleUpdateError}
+                onUpdateGroup={handleUpdateGroup}
+                onAddErrors={handleAddErrors}
+              />
+            )}
+          </>
         )}
       </main>
 

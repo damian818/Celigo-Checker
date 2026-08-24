@@ -524,9 +524,7 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
           <option value="production">Production</option>
           <option value="sandbox">Sandbox</option>
         </select>
-      </div>
-
-      {/* 3. INCIDENT CARDS LIST */}
+      </div>      {/* 3. INCIDENT CARDS LIST */}
       {groupedErrors.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
           <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
@@ -555,7 +553,6 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
             const isAllResolved = group.unresolvedCount === 0;
             const isCritical = group.severity === 'critical';
             const isExpanded = expandedGroupKeys.has(group.groupKey);
-            const isAnalyzingThis = analyzingGroupKey === group.groupKey;
             const isRetryingThis = retryingGroupKey === group.groupKey;
             const isResolvingThis = resolvingGroupKey === group.groupKey;
 
@@ -570,7 +567,7 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                     : 'border-slate-800'
                 }`}
               >
-                {/* 1. CARD TOP HEADER (Primary info & Instant Actions) */}
+                {/* 1. CARD TOP HEADER (Flow Info & Single Primary Action Bar) */}
                 <div className="p-4 sm:p-5 border-b border-slate-800/80 bg-slate-850/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 flex-wrap">
                     {/* Severity Pill */}
@@ -586,60 +583,13 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                       {group.severity}
                     </span>
 
-                    {/* Capability Badge: Retryable vs Resolvable */}
-                    {isAllResolved ? (
-                      <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                        ✓ All Resolved / Purged
-                      </span>
-                    ) : group.canRetry && group.canResolve ? (
-                      <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1" title="Payload can be retried to target system, or marked resolved/purged without replay">
-                        <Zap className="w-3 h-3 text-emerald-400" />
-                        Retryable & Resolvable
-                      </span>
-                    ) : group.canResolve && !group.canRetry ? (
-                      <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1" title="Export/Source step error without replay payload. Can only be Resolved (Purged) in Celigo.">
-                        <Trash2 className="w-3 h-3 text-amber-400" />
-                        Resolve Only (Purge)
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
-                        <Zap className="w-3 h-3 text-indigo-400" />
-                        Retry Only
-                      </span>
-                    )}
-
-                    {/* Affected Records Badge */}
-                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-bold ${
-                      isAllResolved
-                        ? 'bg-slate-800 text-slate-400'
-                        : 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'
-                    }`}>
-                      {isAllResolved ? (
-                        `${group.totalCount} Records`
-                      ) : (
-                        `${group.unresolvedCount} Record${group.unresolvedCount === 1 ? '' : 's'} Blocked`
-                      )}
-                    </span>
-
-                    {/* Flow Classification Badge (VMAC / JE / Other) */}
-                    {(() => {
-                      const badge = getFlowTypeBadgeStyle(group.flowType);
-                      return (
-                        <span className={`px-2.5 py-0.5 rounded-lg text-xs font-bold flex items-center gap-1 ${badge.pillClass}`}>
-                          <Tag className="w-3 h-3" />
-                          <span>{group.flowType}</span>
-                        </span>
-                      );
-                    })()}
-
                     {/* Flow & Integration Name */}
                     <span className="text-sm font-bold text-white">
                       {group.flowName}
                     </span>
 
                     {group.integrationName && (
-                      <span className="text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
+                      <span className="text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700/60">
                         {group.integrationName}
                       </span>
                     )}
@@ -652,35 +602,26 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                     }`}>
                       {group.environment || 'Production'}
                     </span>
+
+                    {/* Affected Records Count Badge */}
+                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-bold ${
+                      isAllResolved
+                        ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50'
+                        : 'bg-rose-950/60 text-rose-300 border border-rose-800/50'
+                    }`}>
+                      {isAllResolved ? '✓ All Resolved' : `${group.unresolvedCount} ${group.unresolvedCount === 1 ? 'Record Blocked' : 'Records Blocked'}`}
+                    </span>
                   </div>
 
-                  {/* Top-Right Primary Action Buttons: RETRY & RESOLVE/PURGE */}
+                  {/* Top-Right Primary Actions (Unified single action cluster) */}
                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto flex-wrap">
-                    {/* Celigo deep link */}
-                    <a
-                      href={buildCeligoFlowUrl(group)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center gap-1"
-                      title="Open in Celigo integrator.io"
-                    >
-                      <span>Celigo</span>
-                      <ExternalLink className="w-3 h-3 text-indigo-400" />
-                    </a>
-
-                    {/* Batch Retry Button (Shown if error capability allows retry) */}
-                    {group.canRetry && (
+                    {/* Retry Button */}
+                    {group.canRetry && !isAllResolved && (
                       <button
                         onClick={() => handleRetryGroup(group)}
-                        disabled={isAllResolved || isRetryingThis || isResolvingThis}
-                        className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer ${
-                          isAllResolved
-                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                            : group.retrySafety === 'safe'
-                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                        }`}
-                        title="Re-send payload to destination endpoint"
+                        disabled={isRetryingThis || isResolvingThis}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer disabled:opacity-50"
+                        title="Re-send payload to destination endpoint in Celigo"
                       >
                         {isRetryingThis ? (
                           <>
@@ -690,27 +631,19 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                         ) : (
                           <>
                             <Zap className="w-3.5 h-3.5" />
-                            <span>
-                              {isAllResolved ? 'Retried' : `Batch Retry (${group.unresolvedCount})`}
-                            </span>
+                            <span>{group.unresolvedCount > 1 ? `Retry All (${group.unresolvedCount})` : 'Retry'}</span>
                           </>
                         )}
                       </button>
                     )}
 
-                    {/* Batch Resolve / Purge Button (Shown if resolvable) */}
-                    {group.canResolve && (
+                    {/* Resolve / Purge Button */}
+                    {group.canResolve && !isAllResolved && (
                       <button
                         onClick={() => handleResolveGroup(group, true)}
-                        disabled={isAllResolved || isResolvingThis || isRetryingThis}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer border ${
-                          isAllResolved
-                            ? 'bg-slate-800/40 text-slate-600 border-slate-800 cursor-not-allowed'
-                            : !group.canRetry
-                            ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500'
-                            : 'bg-slate-800 hover:bg-slate-750 text-slate-200 hover:text-white border-slate-700 hover:border-slate-600'
-                        }`}
-                        title="Mark error records as resolved (purged) in Celigo without re-submitting payload"
+                        disabled={isResolvingThis || isRetryingThis}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer disabled:opacity-50"
+                        title="Mark error as resolved / purge from queue in Celigo"
                       >
                         {isResolvingThis ? (
                           <>
@@ -719,41 +652,49 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                           </>
                         ) : (
                           <>
-                            <Trash2 className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
-                            <span>
-                              {isAllResolved ? 'Resolved' : `Resolve (${group.unresolvedCount})`}
-                            </span>
+                            <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{group.unresolvedCount > 1 ? `Resolve All (${group.unresolvedCount})` : 'Resolve'}</span>
                           </>
                         )}
                       </button>
                     )}
+
+                    {/* Celigo deep link */}
+                    <a
+                      href={buildCeligoFlowUrl(group)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-medium border border-slate-700 flex items-center gap-1"
+                      title="Open in Celigo integrator.io"
+                    >
+                      <span>Celigo</span>
+                      <ExternalLink className="w-3 h-3 text-indigo-400" />
+                    </a>
                   </div>
                 </div>
 
-                {/* 2. CARD BODY: STANDARDIZED SUMMARY BANNER & DETAILS */}
-                <div className="p-4 sm:p-5 space-y-3.5">
-                  {/* Standard Formatted Summary Banner: VMAC/JE/Other _Error: [Name] > Short error description */}
-                  <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 flex items-start justify-between gap-3 shadow-inner">
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                          Standard Error Summary
+                {/* 2. CARD BODY: PROMINENT ERROR MESSAGE & SUMMARY */}
+                <div className="p-4 sm:p-5 space-y-4">
+                  {/* PROMINENT ERROR BOX: Makes the error instantly findable */}
+                  <div className="bg-rose-950/20 border border-rose-900/60 rounded-xl p-4 space-y-2 shadow-inner">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span className="text-[11px] font-bold text-rose-300 uppercase tracking-wider font-mono">
+                          Error: {group.rawErrorCode || 'EXECUTION_FAILURE'}
                         </span>
-                        <span className="text-[10px] font-mono text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                          {group.flowType}_Error: [{group.companyName}] &gt; ...
-                        </span>
+                        {group.httpStatus && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-900/40 text-rose-300 border border-rose-700/50">
+                            HTTP {group.httpStatus}
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs sm:text-sm font-mono font-bold text-sky-200 select-all leading-relaxed">
-                        {group.formattedSummary}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
                       <button
-                        onClick={() => handleCopy(group.formattedSummary, `fmt_sum_${group.groupKey}`)}
-                        className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-medium transition flex items-center gap-1 cursor-pointer"
-                        title="Copy standardized summary to clipboard"
+                        onClick={() => handleCopy(group.rawErrorMessage, `err_msg_${group.groupKey}`)}
+                        className="px-2 py-1 rounded bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 text-[11px] font-medium transition flex items-center gap-1 cursor-pointer"
+                        title="Copy error message"
                       >
-                        {copiedId === `fmt_sum_${group.groupKey}` ? (
+                        {copiedId === `err_msg_${group.groupKey}` ? (
                           <>
                             <Check className="w-3 h-3 text-emerald-400" />
                             <span className="text-emerald-400">Copied</span>
@@ -761,260 +702,181 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                         ) : (
                           <>
                             <Copy className="w-3 h-3" />
-                            <span>Copy</span>
+                            <span>Copy Error</span>
                           </>
                         )}
                       </button>
                     </div>
-                  </div>
 
-                  {/* What Happened (Plain English) */}
-                  <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 text-indigo-400" />
-                        Plain English Summary:
-                      </span>
-                      <button
-                        onClick={() => handleAnalyzeGroup(group)}
-                        disabled={isAnalyzingThis}
-                        className="text-[11px] text-slate-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
-                        title="Re-run AI analysis on this incident"
-                      >
-                        {isAnalyzingThis ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-indigo-400" />}
-                        <span>AI Re-Analyze</span>
-                      </button>
-                    </div>
-                    <p className="text-xs sm:text-sm text-slate-200 font-medium leading-relaxed">
-                      {group.plainEnglishSummary || 'Integration sync halted due to payload schema or API validation error.'}
+                    {/* Actual Error Message Text */}
+                    <p className="text-xs sm:text-sm font-mono text-rose-100 font-semibold leading-relaxed break-words selection:bg-rose-800">
+                      {group.rawErrorMessage}
                     </p>
+
+                    {/* Plain English explanation */}
+                    {group.plainEnglishSummary && group.plainEnglishSummary !== group.rawErrorMessage && (
+                      <p className="text-xs text-slate-300 pt-1 border-t border-rose-900/40 leading-relaxed">
+                        <span className="text-slate-400 font-medium">Explanation: </span>
+                        {group.plainEnglishSummary}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Two Simple Columns: Root Cause & Action Guide */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div className="p-3 rounded-xl bg-slate-800/30 border border-slate-800">
-                      <span className="text-[11px] font-bold text-slate-400 block mb-0.5">Root Cause:</span>
-                      <p className="text-slate-300">
-                        {group.rootCauseSimple || group.rawErrorMessage}
-                      </p>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-slate-800/30 border border-slate-800">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[11px] font-bold text-slate-400">Celigo Action Capability:</span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${group.canRetry ? 'text-emerald-400 bg-emerald-950/60' : 'text-amber-400 bg-amber-950/60'}`}>
-                          {group.canRetry ? '⚡ Retryable' : '🗑️ Resolve Only'}
-                        </span>
-                      </div>
-                      <p className="text-slate-300">
-                        {group.retryableReason || group.retrySafetyReason || 'Verify required fields in payload prior to triggering action.'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* 3. ACTION TOOLBAR (Jira, Remediation Script, Notification) */}
-                  <div className="pt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        onClick={() => onOpenRemediationModal(group.representativeRecord)}
-                        className="px-2.5 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-800/50 flex items-center gap-1.5 transition cursor-pointer"
-                        title="Open AI Remediation Hook Generator"
-                      >
-                        <Bot className="w-3.5 h-3.5" />
-                        <span>AI Hook Fix</span>
-                      </button>
-
+                  {/* 3. SIMPLIFIED ACTION TOOLBAR & TECHNICAL DATA TOGGLE */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    {/* Left: Secondary actions (Jira & Team Notification) */}
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         onClick={() => onOpenJiraModal(group.representativeRecord)}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
                         title="Create Jira Ticket for engineering"
                       >
-                        <FileText className="w-3.5 h-3.5" />
+                        <FileText className="w-3.5 h-3.5 text-indigo-400" />
                         <span>Jira Ticket</span>
                       </button>
 
                       <button
                         onClick={() => onOpenNotificationModal(group.representativeRecord)}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
-                        title="Send Slack or Email alert"
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+                        title="Send Slack or Email alert to team"
                       >
-                        <Send className="w-3.5 h-3.5" />
+                        <Send className="w-3.5 h-3.5 text-sky-400" />
                         <span>Notify Team</span>
                       </button>
                     </div>
 
-                    {/* Drawer Toggle: Affected Records & Technical Details */}
+                    {/* Right: Technical Payload & Data Button (Easily Findable) */}
                     <button
                       onClick={() => toggleGroupExpanded(group.groupKey)}
-                      className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 py-1 cursor-pointer"
+                      className={`px-3.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-2 transition cursor-pointer ${
+                        isExpanded
+                          ? 'bg-indigo-950 border-indigo-700 text-indigo-200 shadow-sm'
+                          : 'bg-slate-800/90 hover:bg-slate-750 border-slate-700 text-indigo-300 hover:text-white'
+                      }`}
                     >
-                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                      <span>
-                        {isExpanded
-                          ? `Hide Technical Details & Records (${group.totalCount})`
-                          : `Inspect ${group.totalCount} Records & Technical Payload`}
-                      </span>
+                      <Code className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{isExpanded ? 'Hide Technical Payload & Data' : `View Technical Payload & Data (${group.totalCount})`}</span>
+                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </button>
                   </div>
 
-                  {/* 4. EXPANDABLE TECHNICAL DETAILS & PAYLOADS */}
+                  {/* 4. EXPANDABLE TECHNICAL DETAILS & PAYLOADS PANEL */}
                   {isExpanded && (
-                    <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
-                      {/* Raw Error Code & HTTP Response */}
+                    <div className="mt-4 pt-4 border-t border-slate-800 space-y-4">
+                      {/* Metadata Grid */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-xs">
-                        <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                          <span className="text-[10px] text-slate-500 uppercase block">Error Code</span>
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                          <span className="text-[10px] text-slate-500 uppercase block font-sans">Error Code</span>
                           <span className="text-rose-400 font-bold block mt-0.5 truncate">{group.rawErrorCode}</span>
                         </div>
-                        <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                          <span className="text-[10px] text-slate-500 uppercase block">HTTP Status</span>
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                          <span className="text-[10px] text-slate-500 uppercase block font-sans">HTTP Status</span>
                           <span className="text-slate-200 font-bold block mt-0.5">{group.httpStatus ? `HTTP ${group.httpStatus}` : 'Validation Exception'}</span>
                         </div>
-                        <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                          <span className="text-[10px] text-slate-500 uppercase block">Target Mapping Field</span>
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                          <span className="text-[10px] text-slate-500 uppercase block font-sans">Target Field / Step</span>
                           <span className="text-indigo-300 font-bold block mt-0.5 truncate">{group.mappingFieldFailed || 'Standard Record Target'}</span>
                         </div>
                       </div>
 
-                      {/* Raw Error Message */}
-                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-mono text-slate-500 uppercase">Raw API Response</span>
-                          <button
-                            onClick={() => handleCopy(group.rawErrorMessage, `raw_${group.groupKey}`)}
-                            className="text-[10px] text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer"
-                          >
-                            {copiedId === `raw_${group.groupKey}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                            Copy
-                          </button>
+                      {/* Technical Payload JSON Box */}
+                      <div className="bg-slate-950 rounded-xl border border-slate-800 p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Code className="w-4 h-4 text-indigo-400" />
+                            <span className="text-xs font-bold text-slate-200 font-sans">
+                              Record Payload Data (JSON)
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleCopy(JSON.stringify(group.representativeRecord.rawPayload || group.representativeRecord, null, 2), `payload_${group.groupKey}`)}
+                              className="px-2.5 py-1 rounded bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium transition flex items-center gap-1 cursor-pointer"
+                            >
+                              {copiedId === `payload_${group.groupKey}` ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span className="text-emerald-400">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5" />
+                                  <span>Copy JSON</span>
+                                </>
+                              )}
+                            </button>
+
+                            {group.canRetry && !isAllResolved && (
+                              <button
+                                onClick={() => setSelectedErrorForPayloadEdit(group.representativeRecord)}
+                                className="px-2.5 py-1 rounded bg-blue-950/80 hover:bg-blue-900 text-blue-300 border border-blue-700/60 text-xs font-medium transition flex items-center gap-1 cursor-pointer"
+                                title="Edit payload snapshot and retry to Celigo"
+                              >
+                                <Code className="w-3.5 h-3.5 text-blue-400" />
+                                <span>Edit & Retry Payload</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <code className="text-xs font-mono text-slate-300 block whitespace-pre-wrap max-h-32 overflow-y-auto">
-                          {group.rawErrorMessage}
-                        </code>
+
+                        <pre className="text-xs font-mono text-slate-300 bg-slate-900/90 p-3 rounded-lg border border-slate-800/80 max-h-48 overflow-y-auto whitespace-pre-wrap selection:bg-indigo-900">
+                          {JSON.stringify(group.representativeRecord.rawPayload || group.representativeRecord, null, 2)}
+                        </pre>
                       </div>
 
-                      {/* Affected Records Table with Both Action Buttons */}
-                      <div className="bg-slate-950 rounded-xl border border-slate-800 p-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-300">
-                            Individual Affected Records ({group.records.length})
-                          </span>
-                          <span className="text-[11px] text-slate-500">
-                            Actions: Retry payload or Resolve / Purge queue
-                          </span>
-                        </div>
+                      {/* Individual Records Table if multiple records exist */}
+                      {group.records.length > 1 && (
+                        <div className="bg-slate-950 rounded-xl border border-slate-800 p-3 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                            <span>Individual Affected Records ({group.records.length})</span>
+                          </div>
 
-                        <div className="divide-y divide-slate-850 max-h-60 overflow-y-auto">
-                          {group.records.map((rec) => {
-                            const recResolved = rec.status === 'resolved';
-                            const recPayloadOpen = expandedPayloadId === rec.id;
-                            const isExport = String(rec.rawErrorCode || '').toUpperCase().includes('EXPORT') || String(rec.rawErrorMessage || '').toLowerCase().includes('export');
-                            const recCanRetry = rec.canRetry !== false && !isExport;
-                            const recCanResolve = rec.canResolve !== false;
+                          <div className="divide-y divide-slate-850 max-h-48 overflow-y-auto">
+                            {group.records.map((rec) => {
+                              const recResolved = rec.status === 'resolved';
+                              const isExport = String(rec.rawErrorCode || '').toUpperCase().includes('EXPORT') || String(rec.rawErrorMessage || '').toLowerCase().includes('export');
+                              const recCanRetry = rec.canRetry !== false && !isExport;
 
-                            return (
-                              <div key={rec.id} className="py-2.5 flex flex-col gap-1.5 text-xs">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-mono font-bold text-white px-2 py-0.5 bg-slate-800 rounded">
+                              return (
+                                <div key={rec.id} className="py-2 flex items-center justify-between gap-2 text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono font-bold text-white px-2 py-0.5 bg-slate-850 rounded border border-slate-700/60">
                                       {rec.recordIdentifier || rec.id}
                                     </span>
                                     {recResolved ? (
                                       <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
                                         <CheckCircle2 className="w-3 h-3" />
-                                        {rec.resolutionMethod === 'purged' ? 'Purged' : 'Resolved'}
+                                        Resolved
                                       </span>
                                     ) : (
                                       <span className="text-[10px] text-rose-400 font-bold">Unresolved</span>
                                     )}
-
-                                    {/* Record capability badge */}
-                                    {!recResolved && (
-                                      <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded ${recCanRetry ? 'text-emerald-300 bg-emerald-950/60 border border-emerald-800/40' : 'text-amber-300 bg-amber-950/60 border border-amber-800/40'}`}>
-                                        {recCanRetry ? '⚡ Retryable' : '🗑️ Resolve Only'}
-                                      </span>
-                                    )}
-
-                                    <span className="text-slate-500 text-[11px]">
-                                      Retries: {rec.retryCount || 0}/{rec.maxRetries || 5}
-                                    </span>
                                   </div>
 
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      onClick={() => setExpandedPayloadId(recPayloadOpen ? null : (rec.id || null))}
-                                      className="text-[11px] text-slate-400 hover:text-slate-200 px-2 py-1 rounded bg-slate-800 border border-slate-700 cursor-pointer"
-                                    >
-                                      {recPayloadOpen ? 'Hide JSON' : 'Payload JSON'}
-                                    </button>
-
-                                    {/* Edit Payload Button */}
-                                    {recCanRetry && (
-                                      <button
-                                        onClick={() => setSelectedErrorForPayloadEdit(rec)}
-                                        disabled={recResolved}
-                                        className={`text-[11px] font-semibold px-2 py-1 rounded transition cursor-pointer flex items-center gap-1 border ${
-                                          recResolved
-                                            ? 'bg-slate-800 text-slate-600 border-slate-800 cursor-not-allowed'
-                                            : 'bg-blue-950/60 hover:bg-blue-900/80 text-blue-300 border-blue-800/50'
-                                        }`}
-                                        title="Edit failed record payload in Celigo and retry"
-                                      >
-                                        <Code className="w-3 h-3 text-blue-400" />
-                                        <span>Edit & Retry</span>
-                                      </button>
-                                    )}
-
-                                    {/* Retry Record Button */}
-                                    {recCanRetry && (
-                                      <button
-                                        onClick={() => rec.id && onQuickRetry(rec.id)}
-                                        disabled={recResolved}
-                                        className={`text-[11px] font-semibold px-2.5 py-1 rounded transition cursor-pointer flex items-center gap-1 ${
-                                          recResolved
-                                            ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                                            : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                                        }`}
-                                        title="Reprocess record payload in Celigo"
-                                      >
-                                        <Zap className="w-3 h-3" />
-                                        <span>{recResolved ? 'Done' : 'Retry'}</span>
-                                      </button>
-                                    )}
-
-                                    {/* Resolve / Purge Record Button */}
-                                    {recCanResolve && (
+                                  {!recResolved && (
+                                    <div className="flex items-center gap-2">
+                                      {recCanRetry && (
+                                        <button
+                                          onClick={() => rec.id && onQuickRetry(rec.id)}
+                                          className="text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                        >
+                                          Retry
+                                        </button>
+                                      )}
                                       <button
                                         onClick={() => rec.id && (onQuickResolve ? onQuickResolve(rec.id, true) : onIgnoreError(rec.id))}
-                                        disabled={recResolved}
-                                        className={`text-[11px] font-semibold px-2.5 py-1 rounded transition cursor-pointer flex items-center gap-1 border ${
-                                          recResolved
-                                            ? 'bg-slate-800/50 text-slate-600 border-slate-800 cursor-not-allowed'
-                                            : !recCanRetry
-                                            ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500'
-                                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
-                                        }`}
-                                        title="Purge/Resolve error from queue without replay"
+                                        className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-850 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700 cursor-pointer"
                                       >
-                                        <Trash2 className="w-3 h-3" />
-                                        <span>{recResolved ? 'Purged' : 'Resolve'}</span>
+                                        Resolve
                                       </button>
-                                    )}
-                                  </div>
+                                    </div>
+                                  )}
                                 </div>
-
-                                {recPayloadOpen && (
-                                  <div className="p-2 rounded bg-slate-900 border border-slate-800 text-xs font-mono">
-                                    <pre className="text-slate-300 max-h-36 overflow-y-auto whitespace-pre-wrap">
-                                      {JSON.stringify(rec.rawPayload || rec, null, 2)}
-                                    </pre>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )}
                 </div>

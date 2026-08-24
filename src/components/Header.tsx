@@ -16,8 +16,8 @@ import {
 import type { User } from '../services/firebase';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'errors' | 'chat' | 'cli';
-  setActiveTab: (tab: 'dashboard' | 'errors' | 'chat' | 'cli') => void;
+  activeTab: 'dashboard' | 'errors';
+  setActiveTab: (tab: 'dashboard' | 'errors') => void;
   unresolvedCount: number;
   environment?: string;
   setEnvironment?: (env: string) => void;
@@ -274,30 +274,6 @@ export const Header: React.FC<HeaderProps> = ({
               {unresolvedCount}
             </span>
           )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('chat')}
-          className={`px-4 py-2.5 text-xs font-medium border-b-2 flex items-center gap-2 transition whitespace-nowrap cursor-pointer ${
-            activeTab === 'chat'
-              ? 'border-indigo-400 text-indigo-400 font-semibold bg-slate-800/30'
-              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-          }`}
-        >
-          <Bot className="w-4 h-4 text-sky-400" />
-          Celigo AI Copilot
-        </button>
-
-        <button
-          onClick={() => setActiveTab('cli')}
-          className={`px-4 py-2.5 text-xs font-medium border-b-2 flex items-center gap-2 transition whitespace-nowrap cursor-pointer ${
-            activeTab === 'cli'
-              ? 'border-indigo-400 text-indigo-400 font-semibold bg-slate-800/30'
-              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-          }`}
-        >
-          <Terminal className="w-4 h-4 text-emerald-400" />
-          Celigo CLI & MCP Terminal
         </button>
       </div>
     </header>
