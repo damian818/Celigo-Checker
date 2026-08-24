@@ -902,36 +902,31 @@ export interface CeligoEnvTarget {
 
 export function getCeligoTargets(req?: Request): CeligoEnvTarget[] {
   const reqStack = (req?.headers?.['x-celigo-stack'] as string) || (req?.query?.stack as string);
-  const isEu = reqStack === 'eu' || process.env.CELIGO_STACK === 'eu';
+  const isEu = reqStack === 'eu';
   const defaultStack = isEu ? 'https://api.eu.integrator.io' : 'https://api.integrator.io';
   const defaultHost = isEu ? 'eu.integrator.io' : 'integrator.io';
 
   const targets: CeligoEnvTarget[] = [];
 
-  // 1. Production Token (Request Header > Environment Secrets)
-  const prodHeader = req?.headers?.['x-celigo-prod-token'] as string;
-  const prodToken = (prodHeader && prodHeader.trim()) || 
-                    process.env.CELIGO_PROD_API_TOKEN || 
-                    process.env.CELIGO_API_TOKEN;
-  if (prodToken && prodToken.trim()) {
+  // 1. Production Token (ONLY from User Request Header or Query)
+  const prodHeader = (req?.headers?.['x-celigo-prod-token'] as string) || (req?.query?.prodToken as string);
+  if (prodHeader && prodHeader.trim()) {
     targets.push({
       name: 'production',
       label: 'Production',
-      token: prodToken.trim(),
+      token: prodHeader.trim(),
       stack: defaultStack,
       host: defaultHost,
     });
   }
 
-  // 2. Sandbox Token (Request Header > Environment Secrets)
-  const sandboxHeader = req?.headers?.['x-celigo-sandbox-token'] as string;
-  const sandboxToken = (sandboxHeader && sandboxHeader.trim()) || 
-                       process.env.CELIGO_SANDBOX_API_TOKEN;
-  if (sandboxToken && sandboxToken.trim()) {
+  // 2. Sandbox Token (ONLY from User Request Header or Query)
+  const sandboxHeader = (req?.headers?.['x-celigo-sandbox-token'] as string) || (req?.query?.sandboxToken as string);
+  if (sandboxHeader && sandboxHeader.trim()) {
     targets.push({
       name: 'sandbox',
       label: 'Sandbox',
-      token: sandboxToken.trim(),
+      token: sandboxHeader.trim(),
       stack: defaultStack,
       host: defaultHost,
     });
@@ -940,7 +935,7 @@ export function getCeligoTargets(req?: Request): CeligoEnvTarget[] {
   return targets;
 }
 
-// Health check & Celigo Connection Status (supports both Prod and Sandbox + Custom User Tokens)
+// Health check & Celigo Connection Status (reflects user tokens from request headers)
 apiRouter.get('/health', (req: Request, res: Response) => {
   const targets = getCeligoTargets(req);
   const prodTarget = targets.find(t => t.name === 'production');
@@ -952,7 +947,7 @@ apiRouter.get('/health', (req: Request, res: Response) => {
     celigoConnected: targets.length > 0,
     prodConnected: Boolean(prodTarget),
     sandboxConnected: Boolean(sbxTarget),
-    celigoStack: (req.headers['x-celigo-stack'] as string) || process.env.CELIGO_STACK || 'us',
+    celigoStack: (req.headers['x-celigo-stack'] as string) || 'us',
     celigoMcpAvailable: true,
     geminiEnabled: Boolean(process.env.GEMINI_API_KEY),
     timestamp: new Date().toISOString(),
@@ -1129,7 +1124,7 @@ apiRouter.get('/celigo/live-flows', async (req: Request, res: Response) => {
   if (targets.length === 0) {
     return res.json({
       connected: false,
-      message: 'Neither CELIGO_PROD_API_TOKEN nor CELIGO_SANDBOX_API_TOKEN is configured in Settings / Secrets or App Header.',
+      message: 'No Celigo API tokens configured. Please configure your Production or Sandbox API token in the settings dialog.',
       flows: [],
       integrations: [],
       totalCount: 0
@@ -1270,7 +1265,7 @@ apiRouter.get('/celigo/live-errors', async (req: Request, res: Response) => {
   if (targets.length === 0) {
     return res.json({
       connected: false,
-      message: 'Neither CELIGO_PROD_API_TOKEN nor CELIGO_SANDBOX_API_TOKEN is configured.',
+      message: 'No Celigo API tokens configured. Please configure your Production or Sandbox API token in the settings dialog.',
       errors: [],
       totalCount: 0
     });

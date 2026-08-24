@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { CeligoErrorRecord, CeligoFlow, JiraTicket } from './types/celigo';
 import { Header } from './components/Header';
+import { SignInPage } from './components/SignInPage';
 import { DashboardView } from './components/DashboardView';
 import { ErrorAnalysisView } from './components/ErrorAnalysisView';
 import { AutomatedRemediationModal } from './components/AutomatedRemediationModal';
@@ -281,8 +282,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    syncCeligoData(false);
-
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         if (!isAllowedEmail(currentUser.email)) {
@@ -290,12 +289,24 @@ export default function App() {
           await signOut(auth);
           localStorage.removeItem('google_access_token');
           setUser(null);
+          setFlows([]);
+          setErrors([]);
+          setIntegrations([]);
+          setProdConnected(false);
+          setSandboxConnected(false);
           showToast(`Access Restricted: Only @${ALLOWED_DOMAIN} accounts are authorized to access this hub.`, 'error');
         } else {
           setUser(currentUser);
+          // Only fetch Celigo data after successful domain authentication
+          syncCeligoData(false);
         }
       } else {
         setUser(null);
+        setFlows([]);
+        setErrors([]);
+        setIntegrations([]);
+        setProdConnected(false);
+        setSandboxConnected(false);
       }
       setIsAuthChecking(false);
     });
@@ -313,6 +324,9 @@ export default function App() {
         await signOut(auth);
         localStorage.removeItem('google_access_token');
         setUser(null);
+        setFlows([]);
+        setErrors([]);
+        setIntegrations([]);
         showToast(`Access Restricted: Login is limited to @${ALLOWED_DOMAIN} email accounts only. (${result.user.email} is not authorized)`, 'error');
         return;
       }
@@ -323,6 +337,7 @@ export default function App() {
       }
       setUser(result.user);
       showToast(`Welcome ${result.user.displayName || result.user.email}! Authenticated with Gappify Workspace.`, 'success');
+      syncCeligoData(false);
     } catch (error: any) {
       console.error('Login error', error);
       if (error.code === 'auth/unauthorized-domain') {
@@ -344,6 +359,12 @@ export default function App() {
     try {
       await signOut(auth);
       localStorage.removeItem('google_access_token');
+      setUser(null);
+      setFlows([]);
+      setErrors([]);
+      setIntegrations([]);
+      setProdConnected(false);
+      setSandboxConnected(false);
       showToast('Logged out successfully', 'info');
     } catch (error) {
       console.error('Logout error', error);
@@ -693,24 +714,61 @@ export default function App() {
     showToast(`Jira Ticket ${ticket.key} created for ${ticket.assignee.name}!`, 'success');
   };
 
-  const [environment, setEnvironment] = useState<string>('Production');
-  const [isSimulating, setIsSimulating] = useState<boolean>(true);
-
   const handleManualRefresh = () => {
     syncCeligoData(true);
   };
 
   const unresolvedCount = errors.filter(e => e.status === 'unresolved').length;
 
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-[#060B13] text-slate-100 flex flex-col items-center justify-center space-y-4">
+        <div className="w-10 h-10 border-3 border-sky-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm font-medium text-slate-400">Verifying Gappify Workspace session...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <SignInPage onLogin={handleGoogleLogin} isLoggingIn={isLoggingIn} />
+        {/* Toast Notification */}
+        {toastMessage && (
+          <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-200">
+            <div
+              className={`px-4 py-3 rounded-xl shadow-2xl border text-xs font-semibold flex items-center gap-2.5 ${
+                toastMessage.type === 'success'
+                  ? 'bg-emerald-950 border-emerald-700 text-emerald-200'
+                  : toastMessage.type === 'error'
+                  ? 'bg-rose-950 border-rose-700 text-rose-200'
+                  : 'bg-slate-900 border-indigo-700 text-slate-100'
+              }`}
+            >
+              {toastMessage.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+              {toastMessage.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400" />}
+              {toastMessage.type === 'info' && <Zap className="w-4 h-4 text-indigo-400" />}
+              <span>{toastMessage.text}</span>
+              <button
+                onClick={() => setToastMessage(null)}
+                className="p-1 hover:opacity-80 text-slate-400 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
-    <div id="celigo-hub-root" className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white flex flex-col">
+    <div id="celigo-hub-root" className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-sky-500 selection:text-white flex flex-col">
       {/* Global Header */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         unresolvedCount={unresolvedCount}
-        environment={environment}
-        setEnvironment={setEnvironment}
         onManualRefresh={handleManualRefresh}
         prodConnected={prodConnected}
         sandboxConnected={sandboxConnected}
@@ -728,130 +786,15 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
-        {isAuthChecking ? (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-            <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm font-medium text-slate-400">Verifying Google Workspace session...</p>
-          </div>
-        ) : !user ? (
-          /* Google Workspace Required Login Gate */
-          <div className="max-w-2xl mx-auto my-8">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl space-y-8 text-center relative overflow-hidden">
-              <div className="absolute -top-24 -right-24 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
-
-              {/* Logo / Badge */}
-              <div className="flex items-center justify-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center shadow-inner">
-                  <Zap className="w-6 h-6 text-indigo-400" />
-                </div>
-                <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center">
-                  <svg className="w-6 h-6" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Title & Description */}
-              <div className="space-y-3">
-                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 inline-block">
-                  Authentication Required
-                </span>
-                <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  Sign in to Celigo Incident Hub
-                </h2>
-                <p className="text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
-                  To protect integration credentials and live customer payloads, sign in with your corporate Google Workspace account before accessing the monitoring dashboard and error queues.
-                </p>
-              </div>
-
-              {/* Sign In Button */}
-              <div className="pt-2 flex flex-col items-center justify-center gap-3">
-                <button
-                  onClick={handleGoogleLogin}
-                  disabled={isLoggingIn}
-                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-                >
-                  {isLoggingIn ? (
-                    <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                      />
-                    </svg>
-                  )}
-                  <span>{isLoggingIn ? 'Authenticating...' : 'Sign in with Google Workspace'}</span>
-                </button>
-              </div>
-
-              {/* Security & Features Checklist */}
-              <div className="pt-6 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
-                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Real-Time Health</span>
-                  </div>
-                  <p className="text-[11px] text-slate-400">Live monitoring of flows & sync velocity across environments.</p>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Payload Triage</span>
-                  </div>
-                  <p className="text-[11px] text-slate-400">Inspect raw failed JSON payloads with 1-click batch retries.</p>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Jira & Alerts</span>
-                  </div>
-                  <p className="text-[11px] text-slate-400">Automated incident tickets & Google Workspace notifications.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* Authenticated Application Views */
-          <>
-            {activeTab === 'dashboard' && (
-              <DashboardView
-                integrations={integrations}
-                flows={flows}
-                errors={errors}
-                onSelectFlow={handleSelectFlowForAnalysis}
-                onSelectError={(err) => setSelectedErrorForRemediation(err)}
-                onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
+        {/* Authenticated Application Views */}
+        {activeTab === 'dashboard' && (
+          <DashboardView
+            integrations={integrations}
+            flows={flows}
+            errors={errors}
+            onSelectFlow={handleSelectFlowForAnalysis}
+            onSelectError={(err) => setSelectedErrorForRemediation(err)}
+            onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
                 onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
                 onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
                 onSwitchTab={setActiveTab}
@@ -890,8 +833,6 @@ export default function App() {
                 onAddErrors={handleAddErrors}
               />
             )}
-          </>
-        )}
       </main>
 
       {/* Footer */}

@@ -21,8 +21,6 @@ interface HeaderProps {
   activeTab: 'dashboard' | 'errors';
   setActiveTab: (tab: 'dashboard' | 'errors') => void;
   unresolvedCount: number;
-  environment?: string;
-  setEnvironment?: (env: string) => void;
   onOpenCustomAnalyzer: () => void;
   onOpenTokensModal: () => void;
   onManualRefresh?: () => void;
@@ -42,8 +40,6 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
   unresolvedCount,
-  environment = 'Production',
-  setEnvironment,
   onOpenCustomAnalyzer,
   onOpenTokensModal,
   onManualRefresh,
@@ -73,7 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Top Utility Ribbon */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 font-medium">
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 font-medium">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             Celigo MCP Server: Online
           </div>
@@ -81,39 +77,39 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Prod Token Status */}
           <button
             onClick={onOpenTokensModal}
-            className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[11px] font-medium transition cursor-pointer hover:opacity-90 ${
+            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-medium transition cursor-pointer hover:opacity-90 ${
               prodConnected 
                 ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60' 
-                : 'bg-slate-800 text-slate-400 border-slate-700'
+                : 'bg-slate-800/90 text-slate-400 border-slate-700 hover:border-slate-600'
             }`}
-            title="Click to configure Production API Token"
+            title="Click to manage Production API Token"
           >
             <span className={`w-1.5 h-1.5 rounded-full ${prodConnected ? 'bg-emerald-400' : 'bg-slate-500'}`}></span>
-            <span>Prod: {prodConnected ? 'Connected' : 'Configure Token'}</span>
+            <span>Production: {prodConnected ? 'Connected' : 'Token Required'}</span>
           </button>
 
           {/* Sandbox Token Status */}
           <button
             onClick={onOpenTokensModal}
-            className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[11px] font-medium transition cursor-pointer hover:opacity-90 ${
+            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-medium transition cursor-pointer hover:opacity-90 ${
               sandboxConnected 
                 ? 'bg-amber-950/60 text-amber-300 border-amber-800/60' 
-                : 'bg-slate-800 text-slate-400 border-slate-700'
+                : 'bg-slate-800/90 text-slate-400 border-slate-700 hover:border-slate-600'
             }`}
-            title="Click to configure Sandbox API Token"
+            title="Click to manage Sandbox API Token"
           >
             <span className={`w-1.5 h-1.5 rounded-full ${sandboxConnected ? 'bg-amber-400' : 'bg-slate-500'}`}></span>
-            <span>Sandbox: {sandboxConnected ? 'Connected' : 'Configure Token'}</span>
+            <span>Sandbox: {sandboxConnected ? 'Connected' : 'Token Required'}</span>
           </button>
 
-          <div className="hidden lg:flex items-center gap-2 text-slate-400">
+          <div className="hidden lg:flex items-center gap-2 text-slate-400 ml-1">
             <span>integrator.io API v1</span>
             <span className="text-slate-600">•</span>
             <a 
               href="https://developer.celigo.com/mcp" 
               target="_blank" 
               rel="noreferrer" 
-              className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 hover:underline"
+              className="text-sky-400 hover:text-sky-300 flex items-center gap-1 hover:underline"
             >
               MCP Docs <ExternalLink className="w-3 h-3" />
             </a>
@@ -122,7 +118,7 @@ export const Header: React.FC<HeaderProps> = ({
               href="https://developer.celigo.com/cli" 
               target="_blank" 
               rel="noreferrer" 
-              className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 hover:underline"
+              className="text-sky-400 hover:text-sky-300 flex items-center gap-1 hover:underline"
             >
               CLI Reference <ExternalLink className="w-3 h-3" />
             </a>
@@ -130,48 +126,25 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5">
-          {/* Configure Tokens Button */}
-          <button
-            onClick={onOpenTokensModal}
-            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-            title="Enter and manage your Celigo API Tokens"
-          >
-            <Key className="w-3.5 h-3.5 text-indigo-400" />
-            <span>API Tokens</span>
-          </button>
-
-          {/* Environment Switcher */}
-          <div className="flex items-center gap-1.5 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
-            <span className="text-slate-400 text-xs">Env:</span>
-            <select
-              value={environment}
-              onChange={(e) => setEnvironment?.(e.target.value)}
-              className="bg-transparent text-slate-200 text-xs font-semibold focus:outline-none cursor-pointer"
-            >
-              <option value="Production" className="bg-slate-900 text-white">Production (US-West)</option>
-              <option value="Sandbox" className="bg-slate-900 text-white">Sandbox (SB-1)</option>
-              <option value="Staging" className="bg-slate-900 text-white">Staging (QA)</option>
-            </select>
-          </div>
-
           {/* Sync Progress / Refresh Button */}
           {isSyncing ? (
             <button
               onClick={() => onShowSyncModal?.()}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/60 text-xs font-semibold shadow-sm transition cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-950/80 hover:bg-sky-900 text-sky-300 border border-sky-700/60 text-xs font-semibold shadow-sm transition cursor-pointer"
               title="Click to view full sync progress checklist"
             >
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-400" />
               <span className="hidden sm:inline">Syncing</span>
-              <span className="font-mono text-[11px] text-indigo-200 font-bold">{Math.round(syncProgress)}%</span>
+              <span className="font-mono text-[11px] text-sky-200 font-bold">{Math.round(syncProgress)}%</span>
             </button>
           ) : (
             <button
               onClick={() => onManualRefresh?.()}
-              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer border border-transparent hover:border-slate-700"
+              className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
               title="Refresh integration feeds & error queues"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="w-3.5 h-3.5 text-sky-400" />
+              <span>Refresh Feeds</span>
             </button>
           )}
         </div>
