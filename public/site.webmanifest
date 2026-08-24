@@ -1,25 +1,64 @@
 {
+  "id": "/",
   "name": "Gappify Celigo Remediation Hub",
-  "short_name": "Remediation Hub",
+  "short_name": "Gappify Hub",
+  "description": "Automated Celigo integration error detection, plain-English root cause diagnosis, and recovery workflows.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B1220",
+  "theme_color": "#0B1220",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
     {
       "src": "/android-chrome-192x192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/android-chrome-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
-    },
-    {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
-  "theme_color": "#0B1220",
-  "background_color": "#0B1220",
-  "display": "standalone",
-  "start_url": "/"
+  "shortcuts": [
+    {
+      "name": "Error Queues",
+      "short_name": "Errors",
+      "description": "View active Celigo integration errors",
+      "url": "/?tab=errors",
+      "icons": [{ "src": "/android-chrome-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Integration Dashboard",
+      "short_name": "Dashboard",
+      "description": "View flow statuses & sync health",
+      "url": "/?tab=dashboard",
+      "icons": [{ "src": "/android-chrome-192x192.png", "sizes": "192x192" }]
+    }
+  ]
 }

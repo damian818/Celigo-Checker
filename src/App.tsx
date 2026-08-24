@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   AlertCircle, 
@@ -21,6 +21,8 @@ import { CustomErrorAnalyzerModal } from './components/CustomErrorAnalyzerModal'
 import { SyncProgressModal } from './components/SyncProgressModal';
 import { CeligoTokensModal } from './components/CeligoTokensModal';
 import { WaitingActionModal } from './components/WaitingActionModal';
+import { usePWAInstall } from './hooks/usePWAInstall';
+import { NotificationService } from './services/notificationService';
 import { 
   triggerErrorRetry, 
   triggerBatchRetry,
@@ -137,9 +139,47 @@ export default function App() {
   // Toast Notification state
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
+  // PWA Web App Installation Hook
+  const { isInstallable, isInstalled, installApp } = usePWAInstall();
+
+  // Auto-sync frequency (defaults to 30 minutes) & countdown ticker
+  const [autoSyncIntervalMinutes, setAutoSyncIntervalMinutes] = useState<number>(30);
+  const [nextSyncSecondsRemaining, setNextSyncSecondsRemaining] = useState<number>(30 * 60);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
+    return NotificationService.getPermissionState() === 'granted';
+  });
+
+  // Track known error IDs to detect new errors during background syncs
+  const prevErrorIdsRef = useRef<Set<string>>(new Set());
+  const isInitialSyncRef = useRef<boolean>(true);
+
   const showToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  const handleRequestNotificationPermission = async () => {
+    const permission = await NotificationService.requestPermission();
+    if (permission === 'granted') {
+      setNotificationsEnabled(true);
+      NotificationService.playAlertChime();
+      NotificationService.notifyNewErrors(0, []);
+      showToast('✓ Browser notifications enabled! You will be alerted when new errors are found.', 'success');
+    } else {
+      setNotificationsEnabled(false);
+      showToast('Notifications permission was blocked or dismissed.', 'info');
+    }
+  };
+
+  const handleInstallPWA = async () => {
+    if (isInstallable) {
+      const installed = await installApp();
+      if (installed) {
+        showToast('✓ Gappify Celigo Remediation Hub installed as a Web App!', 'success');
+      }
+    } else {
+      showToast('To install: click the Install icon in your browser address bar or menu ("Install Gappify Celigo Hub").', 'info');
+    }
   };
 
   // Sync with live Celigo REST API with multi-environment ingestion & real-time progress updates
@@ -228,6 +268,32 @@ export default function App() {
           });
           setErrors(enrichedErrors);
           setDataSource('live');
+
+          // Detect new errors since last sync
+          const currentErrorIds = new Set<string>();
+          const newlyDiscoveredErrors: CeligoErrorRecord[] = [];
+
+          enrichedErrors.forEach((err: CeligoErrorRecord) => {
+            const errorKey = err.id || err.retryDataKey || `${err.flowId}_${err.occurredAt}_${err.message}`;
+            currentErrorIds.add(errorKey);
+            if (!isInitialSyncRef.current && !prevErrorIdsRef.current.has(errorKey)) {
+              newlyDiscoveredErrors.push(err);
+            }
+          });
+
+          prevErrorIdsRef.current = currentErrorIds;
+
+          if (!isInitialSyncRef.current && newlyDiscoveredErrors.length > 0) {
+            const affectedFlows = Array.from(new Set(newlyDiscoveredErrors.map(e => e.flowName || 'Integration Flow')));
+            // Play alert sound
+            NotificationService.playAlertChime();
+            // Dispatch browser OS notification
+            NotificationService.notifyNewErrors(newlyDiscoveredErrors.length, affectedFlows);
+            // In-app alert
+            showToast(`⚠️ ${newlyDiscoveredErrors.length} new Celigo integration error(s) detected during sync!`, 'error');
+          }
+
+          isInitialSyncRef.current = false;
         }
 
         setSyncStats({
@@ -245,6 +311,9 @@ export default function App() {
           const sbxFlows = liveFlowsRes.sandboxFlowCount ?? fetchedFlows.filter((f: any) => f.environment === 'sandbox').length;
           showToast(`✓ Synced ${fetchedFlows.length} flows (${prodFlows} Prod, ${sbxFlows} Sandbox) & ${fetchedErrors.length} errors from Celigo!`, 'success');
         }
+
+        // Reset next sync timer countdown
+        setNextSyncSecondsRemaining(autoSyncIntervalMinutes * 60);
 
         // Brief delay before smoothly closing modal so user sees the 100% completion
         setTimeout(() => {
@@ -279,6 +348,35 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Automatic Background Periodic Sync Timer (every 30 minutes or selected interval)
+  useEffect(() => {
+    if (!user) return;
+
+    const timer = setInterval(() => {
+      setNextSyncSecondsRemaining(prev => {
+        if (prev <= 1) {
+          // Perform automatic background sync
+          syncCeligoData(false);
+          return autoSyncIntervalMinutes * 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [user, autoSyncIntervalMinutes]);
+
+  // Reset countdown when interval setting is changed
+  useEffect(() => {
+    setNextSyncSecondsRemaining(autoSyncIntervalMinutes * 60);
+  }, [autoSyncIntervalMinutes]);
+
+  const formatCountdown = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}m ${s < 10 ? '0' : ''}${s}s`;
   };
 
   useEffect(() => {
@@ -782,6 +880,17 @@ export default function App() {
         isLoggingIn={isLoggingIn}
         onLogin={handleGoogleLogin}
         onLogout={handleLogout}
+        isInstallable={isInstallable}
+        isInstalled={isInstalled}
+        onInstallPWA={handleInstallPWA}
+        autoSyncIntervalMinutes={autoSyncIntervalMinutes}
+        nextSyncCountdown={formatCountdown(nextSyncSecondsRemaining)}
+        notificationsEnabled={notificationsEnabled}
+        onRequestNotificationPermission={handleRequestNotificationPermission}
+        onChangeAutoSyncInterval={(mins) => {
+          setAutoSyncIntervalMinutes(mins);
+          showToast(`Auto-sync interval set to every ${mins} minutes`, 'info');
+        }}
       />
 
       {/* Main Container */}

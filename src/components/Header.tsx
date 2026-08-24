@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Activity, 
   Terminal, 
@@ -12,7 +12,13 @@ import {
   LogOut,
   User as UserIcon,
   Loader2,
-  ShieldCheck
+  ShieldCheck,
+  Download,
+  Bell,
+  BellRing,
+  Clock,
+  CheckCircle2,
+  Smartphone
 } from 'lucide-react';
 import type { User } from '../services/firebase';
 import { GappifyLogo } from './GappifyLogo';
@@ -34,6 +40,14 @@ interface HeaderProps {
   isLoggingIn?: boolean;
   onLogin?: () => void;
   onLogout?: () => void;
+  isInstallable?: boolean;
+  isInstalled?: boolean;
+  onInstallPWA?: () => void;
+  autoSyncIntervalMinutes?: number;
+  nextSyncCountdown?: string;
+  notificationsEnabled?: boolean;
+  onRequestNotificationPermission?: () => void;
+  onChangeAutoSyncInterval?: (minutes: number) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -52,8 +66,18 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   isLoggingIn,
   onLogin,
-  onLogout
+  onLogout,
+  isInstallable = false,
+  isInstalled = false,
+  onInstallPWA,
+  autoSyncIntervalMinutes = 30,
+  nextSyncCountdown = '',
+  notificationsEnabled = false,
+  onRequestNotificationPermission,
+  onChangeAutoSyncInterval
 }) => {
+  const [showSyncIntervalMenu, setShowSyncIntervalMenu] = useState(false);
+
   return (
     <header className="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-40 shadow-md">
       {/* Topmost Linear Sync Progress Bar */}
@@ -126,6 +150,67 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5">
+          {/* Notifications Permission Toggle */}
+          <button
+            onClick={onRequestNotificationPermission}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition cursor-pointer ${
+              notificationsEnabled
+                ? 'bg-sky-950/60 text-sky-300 border-sky-700/60 hover:bg-sky-900/60'
+                : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-slate-200'
+            }`}
+            title={notificationsEnabled ? 'Desktop notifications enabled for new Celigo errors' : 'Enable browser notifications for auto-sync alerts'}
+          >
+            {notificationsEnabled ? (
+              <>
+                <BellRing className="w-3.5 h-3.5 text-sky-400" />
+                <span className="hidden sm:inline">Alerts Active</span>
+              </>
+            ) : (
+              <>
+                <Bell className="w-3.5 h-3.5 text-slate-400" />
+                <span className="hidden sm:inline">Enable Alerts</span>
+              </>
+            )}
+          </button>
+
+          {/* Auto-Sync Timer Badge & Interval Selector */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSyncIntervalMenu(!showSyncIntervalMenu)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition cursor-pointer"
+              title="Click to adjust auto-sync frequency"
+            >
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Auto-Sync: <strong className="text-white">{autoSyncIntervalMinutes}m</strong></span>
+              {nextSyncCountdown && (
+                <span className="text-[10px] text-emerald-400 font-mono hidden md:inline">({nextSyncCountdown})</span>
+              )}
+            </button>
+
+            {showSyncIntervalMenu && (
+              <div className="absolute right-0 mt-1.5 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95">
+                <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                  Auto-Sync Frequency
+                </div>
+                {[15, 30, 60].map((mins) => (
+                  <button
+                    key={mins}
+                    onClick={() => {
+                      onChangeAutoSyncInterval?.(mins);
+                      setShowSyncIntervalMenu(false);
+                    }}
+                    className={`w-full px-3 py-1.5 text-left text-xs flex items-center justify-between hover:bg-slate-800 transition cursor-pointer ${
+                      autoSyncIntervalMinutes === mins ? 'text-sky-400 font-bold bg-sky-950/30' : 'text-slate-300'
+                    }`}
+                  >
+                    <span>Every {mins} minutes</span>
+                    {autoSyncIntervalMinutes === mins && <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Sync Progress / Refresh Button */}
           {isSyncing ? (
             <button
@@ -141,7 +226,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={() => onManualRefresh?.()}
               className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-              title="Refresh integration feeds & error queues"
+              title="Refresh integration feeds & error queues immediately"
             >
               <RefreshCw className="w-3.5 h-3.5 text-sky-400" />
               <span>Refresh Feeds</span>
@@ -202,6 +287,32 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin text-sky-400" /> : <ShieldCheck className="w-4 h-4 text-sky-400" />}
               <span>Sign In with @gappify.com</span>
+            </button>
+          )}
+
+          {/* PWA Install Button / Status */}
+          {isInstalled ? (
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700 text-[11px] font-medium text-slate-300">
+              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+              <span>App Installed</span>
+            </div>
+          ) : isInstallable ? (
+            <button
+              onClick={onInstallPWA}
+              className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer animate-pulse"
+              title="Install Gappify Celigo Remediation Hub as a Desktop / Mobile Web App"
+            >
+              <Download className="w-4 h-4" />
+              <span>Install App</span>
+            </button>
+          ) : (
+            <button
+              onClick={onInstallPWA}
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition cursor-pointer"
+              title="Install as Progressive Web App"
+            >
+              <Download className="w-3.5 h-3.5 text-sky-400" />
+              <span>Install App</span>
             </button>
           )}
 
