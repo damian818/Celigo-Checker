@@ -670,6 +670,20 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                       <span>Celigo</span>
                       <ExternalLink className="w-3 h-3 text-indigo-400" />
                     </a>
+
+                    {group.jiraTicketId && (
+                      <a
+                        href={`https://gappify.atlassian.net/browse/${group.jiraTicketId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1.5 rounded-xl bg-sky-900/30 hover:bg-sky-800/40 text-sky-300 hover:text-sky-200 text-xs font-medium border border-sky-800/50 flex items-center gap-1.5 transition"
+                        title="View Jira Ticket"
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                        <span>{group.jiraTicketId}</span>
+                        <ExternalLink className="w-3 h-3 opacity-60" />
+                      </a>
+                    )}
                   </div>
                 </div>
 
@@ -727,12 +741,22 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                     {/* Left: Secondary actions (Jira & Team Notification) */}
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
-                        onClick={() => onOpenJiraModal(group.representativeRecord)}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-                        title="Create Jira Ticket for engineering"
+                        onClick={() => {
+                          if (group.jiraTicketId) {
+                            window.open(`https://gappify.atlassian.net/browse/${group.jiraTicketId}`, '_blank');
+                          } else {
+                            onOpenJiraModal(group.representativeRecord);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                          group.jiraTicketId 
+                            ? 'bg-sky-900/30 hover:bg-sky-800/40 text-sky-300 border-sky-800/50'
+                            : 'bg-slate-800 hover:bg-slate-750 text-slate-200 border-slate-700'
+                        }`}
+                        title={group.jiraTicketId ? "Open linked Jira Ticket" : "Create Jira Ticket for engineering"}
                       >
-                        <FileText className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Jira Ticket</span>
+                        <FileText className={`w-3.5 h-3.5 ${group.jiraTicketId ? 'text-sky-400' : 'text-indigo-400'}`} />
+                        <span>{group.jiraTicketId ? group.jiraTicketId : 'Jira Ticket'}</span>
                       </button>
 
                       <button

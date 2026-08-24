@@ -30,7 +30,8 @@ import {
   Play,
   SlidersHorizontal,
   Eye,
-  EyeOff
+  EyeOff,
+  FileText
 } from 'lucide-react';
 import { CeligoErrorRecord, CeligoFlow, CeligoIntegration } from '../types/celigo';
 import { ErrorSummaryModal, ErrorSummaryScope } from './ErrorSummaryModal';
@@ -78,6 +79,7 @@ interface IntegrationGroup {
   totalErrors: number;
   totalThroughput: number;
   integrationUrl?: string;
+  jiraLinkedErrors?: number;
 }
 
 // Helper to determine if a flow is paused
@@ -204,6 +206,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // 2. Group into Integrations
   const groupedIntegrations = useMemo(() => {
+    const flowJiraCounts: Record<string, number> = {};
+    errors?.forEach(e => {
+      if (e.jiraTicketId && e.flowId) {
+        flowJiraCounts[e.flowId] = (flowJiraCounts[e.flowId] || 0) + 1;
+      }
+    });
+
     const groupMap = new Map<string, IntegrationGroup>();
 
     // Seed known integrations
@@ -225,6 +234,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           totalErrors: 0,
           totalThroughput: 0,
           integrationUrl,
+          jiraLinkedErrors: 0,
         });
       });
     }
@@ -251,6 +261,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           totalErrors: 0,
           totalThroughput: 0,
           integrationUrl,
+          jiraLinkedErrors: 0,
         });
       }
 
@@ -267,6 +278,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       else if (errs > 0) grp.degradedFlows += 1;
       grp.totalErrors += errs;
       grp.totalThroughput += (flow.recordsProcessed24h || 0);
+      
+      const linkedCount = flow.id ? flowJiraCounts[flow.id] || 0 : 0;
+      if (linkedCount > 0) {
+        grp.jiraLinkedErrors = (grp.jiraLinkedErrors || 0) + linkedCount;
+        // Inject Jira count into the flow object for later rendering
+        (flow as any)._jiraLinkedErrors = linkedCount;
+      }
     });
 
     const list = Array.from(groupMap.values()).filter(g => g.totalFlows > 0);
@@ -276,7 +294,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       if (b.totalErrors !== a.totalErrors) return b.totalErrors - a.totalErrors;
       return a.name.localeCompare(b.name);
     });
-  }, [filteredFlows, integrations]);
+  }, [filteredFlows, integrations, errors]);
 
   // Celigo direct URL builder
   const getCeligoFlowUrl = (flow: CeligoFlow) => {
@@ -628,6 +646,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <span>Celigo</span>
                           </a>
                         )}
+
+                        {/* Jira Link Badge */}
+                        {group.jiraLinkedErrors ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-900/30 text-sky-300 border border-sky-800/50 flex items-center gap-1 ml-1" title={`${group.jiraLinkedErrors} errors in this integration are linked to Jira issues.`}>
+                            <FileText className="w-2.5 h-2.5" />
+                            {group.jiraLinkedErrors} Linked {group.jiraLinkedErrors === 1 ? 'Ticket' : 'Tickets'}
+                          </span>
+                        ) : null}
                       </div>
 
                       <p className="text-xs text-slate-400 mt-0.5">
@@ -747,6 +773,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                   )}
                                 </>
                               )}
+                              
+                              {/* Flow Jira Badge */}
+                              {(flow as any)._jiraLinkedErrors ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-900/40 text-sky-300 border border-sky-800 flex items-center gap-1" title={`${(flow as any)._jiraLinkedErrors} linked Jira ticket(s)`}>
+                                  <FileText className="w-2.5 h-2.5" />
+                                  {(flow as any)._jiraLinkedErrors}
+                                </span>
+                              ) : null}
                             </div>
 
                             {/* Systems & Schedule */}

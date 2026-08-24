@@ -318,10 +318,6 @@ export default function App() {
               
               if (soundEnabled) NotificationService.playAlertChime();
               NotificationService.notifyErrors(unresolvedCount, newlyDiscoveredErrors.length, affectedFlows);
-              
-              if (newlyDiscoveredErrors.length > 0) {
-                showToast(`⚠️ ${newlyDiscoveredErrors.length} new Celigo integration error(s) detected during sync!`, 'error');
-              }
             } else if (unresolvedCount === 0 && notifyOnHealthySync) {
               if (soundEnabled) NotificationService.playAlertChime();
               NotificationService.notifyHealthySync(fetchedFlows.length, fetchedIntegrations.length);

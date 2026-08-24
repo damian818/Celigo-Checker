@@ -61,6 +61,10 @@ export const JiraTicketModal: React.FC<JiraTicketModalProps> = ({
   // 2-Step Modal State: Step 1 (Main Fields) -> Step 2 (Custom Fields)
   const [step, setStep] = useState<1 | 2>(1);
 
+  // Mode: Create New vs Link Existing
+  const [ticketMode, setTicketMode] = useState<'create' | 'link'>('create');
+  const [existingTicketKey, setExistingTicketKey] = useState('');
+
   // 1. Standard / Main Fields State
   const [projectKey] = useState<string>(JIRA_PROJECT_CONFIG.key);
   const [projectId] = useState<string>(JIRA_PROJECT_CONFIG.id);
@@ -299,6 +303,27 @@ ${error.rootCauseSimple || 'Data validation failed against the target system API
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (ticketMode === 'link') {
+      if (!existingTicketKey.trim()) {
+        setErrorMsg('Please enter a Jira ticket key (e.g., GS-1234) to link.');
+        return;
+      }
+      const key = existingTicketKey.trim().toUpperCase();
+      const fakeTicket: JiraTicket = {
+        id: `jira_link_${Date.now()}`,
+        key: key,
+        url: `https://gappify.atlassian.net/browse/${key}`,
+        summary: `Linked Issue ${key}`,
+        status: 'Linked',
+        assignee: { name: 'N/A' },
+      };
+      setSuccessTicket(fakeTicket);
+      onTicketCreated(fakeTicket, error.id || inboundCeligoErrorId);
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+      return;
+    }
+
     setLoading(true);
     setErrorMsg(null);
 
@@ -578,9 +603,55 @@ ${error.rootCauseSimple || 'Data validation failed against the target system API
           ) : (
             /* Ticket Form */
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Ticket Mode Tabs */}
+              <div className="flex border-b border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setTicketMode('create')}
+                  className={`flex-1 py-2 text-[13px] font-semibold transition cursor-pointer border-b-2 ${
+                    ticketMode === 'create'
+                      ? 'border-sky-500 text-sky-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
+                  }`}
+                >
+                  Create New Jira Ticket
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTicketMode('link')}
+                  className={`flex-1 py-2 text-[13px] font-semibold transition cursor-pointer border-b-2 ${
+                    ticketMode === 'link'
+                      ? 'border-sky-500 text-sky-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
+                  }`}
+                >
+                  Link Existing Ticket
+                </button>
+              </div>
               
-              {/* STEP 1: MAIN / STANDARD FIELDS */}
-              {step === 1 && (
+              {ticketMode === 'link' ? (
+                <div className="space-y-4 animate-in fade-in duration-150 py-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-200">
+                      Jira Ticket Key <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={existingTicketKey}
+                      onChange={(e) => setExistingTicketKey(e.target.value)}
+                      placeholder="e.g., GS-1234"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sky-500 transition"
+                      required
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Link an existing Jira ticket to this error. This will update the error record to reflect the associated ticket.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* STEP 1: MAIN / STANDARD FIELDS */}
+                  {step === 1 && (
                 <div className="space-y-4 animate-in fade-in duration-150">
                   <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
                     <span className="text-slate-400">Fixed Jira Standard Schema:</span>
@@ -1019,11 +1090,13 @@ ${error.rootCauseSimple || 'Data validation failed against the target system API
                   </div>
                 </div>
               )}
+              </>
+              )}
 
               {/* Form Footer Navigation */}
               <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  {step === 2 && (
+                  {ticketMode === 'create' && step === 2 && (
                     <button
                       type="button"
                       onClick={handlePrevStep}
@@ -1042,13 +1115,15 @@ ${error.rootCauseSimple || 'Data validation failed against the target system API
                     Cancel
                   </button>
 
-                  <div className="text-[11px] text-slate-500 hidden sm:block">
-                    Space: <strong className="text-slate-400">GS</strong> • Customer: <strong className="text-slate-400 truncate max-w-[120px] inline-block align-bottom">{gpfyCustomerName}</strong>
-                  </div>
+                  {ticketMode === 'create' && (
+                    <div className="text-[11px] text-slate-500 hidden sm:block">
+                      Space: <strong className="text-slate-400">GS</strong> • Customer: <strong className="text-slate-400 truncate max-w-[120px] inline-block align-bottom">{gpfyCustomerName}</strong>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {step === 1 ? (
+                  {ticketMode === 'create' && step === 1 ? (
                     <button
                       type="button"
                       onClick={handleNextStep}
@@ -1064,7 +1139,7 @@ ${error.rootCauseSimple || 'Data validation failed against the target system API
                       className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center gap-2 shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer"
                     >
                       {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                      <span>{loading ? 'Creating in Jira...' : 'Create Jira Ticket'}</span>
+                      <span>{loading ? (ticketMode === 'link' ? 'Linking...' : 'Creating in Jira...') : (ticketMode === 'link' ? 'Link Ticket' : 'Create Jira Ticket')}</span>
                     </button>
                   )}
                 </div>
