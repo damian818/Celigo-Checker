@@ -1789,7 +1789,7 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
   try {
     const { 
       errorIds, 
-      flowId, 
+      flowId: rawFlowId, 
       errorId, 
       stepId, 
       exportOrImportId, 
@@ -1802,7 +1802,18 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
     const idsToResolve: string[] = Array.isArray(errorIds) && errorIds.length > 0
       ? errorIds 
       : (errorId ? [errorId] : []);
-    
+
+    // Extract flowId from ids if not explicitly passed (e.g. from errorId strings like '649abc..._summary_err')
+    let flowId = rawFlowId;
+    if (!flowId && idsToResolve.length > 0) {
+      for (const id of idsToResolve) {
+        if (id && id.includes('_summary_err')) {
+          flowId = id.split('_summary_err')[0];
+          break;
+        }
+      }
+    }
+
     const targets = getCeligoTargets(req);
     let celigoApiSuccess = false;
     let celigoMessage = '';
@@ -1820,90 +1831,98 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
         const hasOnlySyntheticIds = idsToResolve.length === 0 || idsToResolve.every(id => id.includes('_summary_err') || id.startsWith('flow_') || !/^[0-9a-fA-F]{24}$/.test(id));
 
         for (const sId of targetSteps) {
-          const resolveUrl = sId === 'default'
-            ? `${target.stack}/v1/flows/${flowId}/resolved`
-            : `${target.stack}/v1/flows/${flowId}/${sId}/resolved`;
+          const stepResolveUrl = `${target.stack}/v1/flows/${flowId}/${sId}/resolved`;
 
-          // 1. Specific Celigo Error IDs (if authentic 24-hex ObjectIds)
-          if (isHexIdList && !selectAll) {
-            const resp = await fetch(resolveUrl, {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${target.token}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ errors: idsToResolve })
-            });
-
-            if (resp.ok || resp.status === 204) {
-              celigoApiSuccess = true;
-              break;
-            } else {
-              lastErrorDetails = await resp.text().catch(() => 'HTTP ' + resp.status);
-              // Fallback to selectAll if error IDs failed
-              const fallbackBulk = await fetch(resolveUrl, {
+          // Format 1: If valid MongoDB ObjectIDs, try specific error IDs payload
+          if (isHexIdList && !selectAll && !hasOnlySyntheticIds && sId !== 'default') {
+            try {
+              const resp = await fetch(stepResolveUrl, {
                 method: 'PUT',
                 headers: {
                   'Authorization': `Bearer ${target.token}`,
                   'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ selectAll: true })
-              });
-              if (fallbackBulk.ok || fallbackBulk.status === 204) {
-                celigoApiSuccess = true;
-                break;
-              }
-            }
-          } else {
-            // 2. Bulk resolve payload: { selectAll: true }
-            const bulkResp = await fetch(resolveUrl, {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${target.token}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                selectAll: true,
-                ...(lastErrorAt ? { lastErrorAt } : {})
-              })
-            });
-
-            if (bulkResp.ok || bulkResp.status === 204) {
-              celigoApiSuccess = true;
-              break;
-            } else {
-              const simpleResp = await fetch(resolveUrl, {
-                method: 'PUT',
-                headers: {
-                  'Authorization': `Bearer ${target.token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ selectAll: true })
+                body: JSON.stringify({ errors: idsToResolve })
               });
 
-              if (simpleResp.ok || simpleResp.status === 204) {
+              if (resp.ok || resp.status === 204 || resp.status === 200) {
                 celigoApiSuccess = true;
                 break;
               } else {
-                lastErrorDetails = await simpleResp.text().catch(() => 'HTTP ' + simpleResp.status);
+                lastErrorDetails = await resp.text().catch(() => 'HTTP ' + resp.status);
               }
+            } catch (err: any) {
+              lastErrorDetails = err.message;
+            }
+          }
+
+          // Format 2: Standard Celigo Bulk Purge payload { selectAll: true, lastErrorAt }
+          if (!celigoApiSuccess) {
+            const urlToTry = sId === 'default'
+              ? `${target.stack}/v1/flows/${flowId}/resolved`
+              : stepResolveUrl;
+
+            try {
+              const bulkResp = await fetch(urlToTry, {
+                method: 'PUT',
+                headers: {
+                  'Authorization': `Bearer ${target.token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  selectAll: true,
+                  ...(lastErrorAt ? { lastErrorAt } : {})
+                })
+              });
+
+              if (bulkResp.ok || bulkResp.status === 204 || bulkResp.status === 200) {
+                celigoApiSuccess = true;
+                break;
+              } else {
+                lastErrorDetails = await bulkResp.text().catch(() => 'HTTP ' + bulkResp.status);
+                
+                // Format 3: Minimal { selectAll: true }
+                const simpleResp = await fetch(urlToTry, {
+                  method: 'PUT',
+                  headers: {
+                    'Authorization': `Bearer ${target.token}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ selectAll: true })
+                });
+
+                if (simpleResp.ok || simpleResp.status === 204 || simpleResp.status === 200) {
+                  celigoApiSuccess = true;
+                  break;
+                } else {
+                  lastErrorDetails = await simpleResp.text().catch(() => 'HTTP ' + simpleResp.status);
+                }
+              }
+            } catch (err: any) {
+              lastErrorDetails = err.message;
             }
           }
         }
 
-        // Direct flow resolved endpoint if step endpoints didn't succeed
+        // Format 4: Flow-level direct endpoint PUT /v1/flows/{flowId}/resolved
         if (!celigoApiSuccess) {
           const directResolveUrl = `${target.stack}/v1/flows/${flowId}/resolved`;
-          const directResp = await fetch(directResolveUrl, {
-            method: 'PUT',
-            headers: {
-              'Authorization': `Bearer ${target.token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ selectAll: true })
-          });
-          if (directResp.ok || directResp.status === 204) {
-            celigoApiSuccess = true;
+          try {
+            const directResp = await fetch(directResolveUrl, {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${target.token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ selectAll: true })
+            });
+            if (directResp.ok || directResp.status === 204 || directResp.status === 200) {
+              celigoApiSuccess = true;
+            } else {
+              lastErrorDetails = await directResp.text().catch(() => 'HTTP ' + directResp.status);
+            }
+          } catch (err: any) {
+            lastErrorDetails = err.message;
           }
         }
 
@@ -1918,7 +1937,7 @@ apiRouter.post('/celigo/resolve-errors', async (req: Request, res: Response) => 
     }
 
     if (!celigoApiSuccess && targets.length === 0) {
-      celigoMessage = `[Simulation Mode] Cleared error queue for flow ${flowId || 'integration'}. Status: RESOLVED.`;
+      celigoMessage = `[Preview Mode] Cleared error queue for flow ${flowId || 'integration'}. Status: RESOLVED.`;
       celigoApiSuccess = true;
     }
 

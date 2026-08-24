@@ -266,7 +266,9 @@ export async function triggerErrorRetry(
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      return { success: false, message: response.statusText, timestamp: new Date().toLocaleTimeString() };
+      const errBody = await response.json().catch(() => null);
+      const errMsg = errBody?.error || errBody?.message || response.statusText || 'Failed to retry error';
+      return { success: false, message: errMsg, timestamp: new Date().toLocaleTimeString() };
     }
     const data = await response.json();
     return {
@@ -282,7 +284,7 @@ export async function triggerErrorRetry(
 
 export async function triggerBatchRetry(
   errorIdsOrOptions: string[] | RetryOptions, 
-  flowId?: string,
+  flowId?: string, 
   stepId?: string
 ): Promise<{ success: boolean; count: number; message: string; timestamp: string; job?: any }> {
   try {
@@ -296,7 +298,9 @@ export async function triggerBatchRetry(
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      return { success: false, count: 0, message: response.statusText, timestamp: new Date().toLocaleTimeString() };
+      const errBody = await response.json().catch(() => null);
+      const errMsg = errBody?.error || errBody?.message || response.statusText || 'Failed to retry errors';
+      return { success: false, count: 0, message: errMsg, timestamp: new Date().toLocaleTimeString() };
     }
     const data = await response.json();
     return {
@@ -328,7 +332,9 @@ export async function triggerErrorResolve(
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      return { success: false, message: response.statusText, timestamp: new Date().toLocaleTimeString() };
+      const errBody = await response.json().catch(() => null);
+      const errMsg = errBody?.error || errBody?.message || response.statusText || 'Failed to resolve error';
+      return { success: false, message: errMsg, timestamp: new Date().toLocaleTimeString() };
     }
     const data = await response.json();
     return {
@@ -358,7 +364,9 @@ export async function triggerBatchResolve(
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      return { success: false, count: 0, message: response.statusText, timestamp: new Date().toLocaleTimeString() };
+      const errBody = await response.json().catch(() => null);
+      const errMsg = errBody?.error || errBody?.message || response.statusText || 'Failed to resolve errors';
+      return { success: false, count: 0, message: errMsg, timestamp: new Date().toLocaleTimeString() };
     }
     const data = await response.json();
     return {
