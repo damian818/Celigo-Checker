@@ -107,16 +107,31 @@ export default function App() {
   // PWA Web App Installation Hook
   const { isInstallable, isInstalled, installApp } = usePWAInstall();
 
-  // Auto-sync frequency (defaults to 30 minutes) & countdown ticker
-  const [autoSyncIntervalMinutes, setAutoSyncIntervalMinutes] = useState<number>(30);
-  const [nextSyncSecondsRemaining, setNextSyncSecondsRemaining] = useState<number>(30 * 60);
+  // Auto-sync frequency (persisted in localStorage & Firestore) & countdown ticker
+  const [autoSyncIntervalMinutes, setAutoSyncIntervalMinutes] = useState<number>(() => {
+    const saved = localStorage.getItem('celigo_auto_sync_interval');
+    return saved ? Number(saved) : 30;
+  });
+  const [nextSyncSecondsRemaining, setNextSyncSecondsRemaining] = useState<number>(() => {
+    const savedInterval = localStorage.getItem('celigo_auto_sync_interval');
+    const intervalMins = savedInterval ? Number(savedInterval) : 30;
+    const storedLastSync = Number(localStorage.getItem('celigo_last_sync_timestamp') || 0);
+    if (!storedLastSync) return intervalMins * 60;
+    const elapsedSecs = Math.floor((Date.now() - storedLastSync) / 1000);
+    return Math.max(0, (intervalMins * 60) - elapsedSecs);
+  });
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
     return NotificationService.getPermissionState() === 'granted';
+  });
+  const [notifyOnHealthySync, setNotifyOnHealthySync] = useState<boolean>(() => {
+    const saved = localStorage.getItem('celigo_notify_healthy');
+    return saved !== null ? saved === 'true' : true;
   });
 
   // Track known error IDs to detect new errors during background syncs
   const prevErrorIdsRef = useRef<Set<string>>(new Set());
   const isInitialSyncRef = useRef<boolean>(true);
+  const isSyncingRef = useRef<boolean>(false);
 
   const showToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToastMessage({ text, type });
@@ -128,12 +143,34 @@ export default function App() {
     if (permission === 'granted') {
       setNotificationsEnabled(true);
       NotificationService.playAlertChime();
-      NotificationService.notifyNewErrors(0, []);
-      showToast('✓ Browser notifications enabled! You will be alerted when new errors are found.', 'success');
+      NotificationService.notifyHealthySync(flows.length || 1, integrations.length || 1);
+      showToast('✓ Browser notifications enabled! You will be alerted when syncs complete or new errors are found.', 'success');
     } else {
       setNotificationsEnabled(false);
-      showToast('Notifications permission was blocked or dismissed.', 'info');
+      showToast('Notifications permission was blocked or dismissed in browser.', 'info');
     }
+  };
+
+  const handleTestNotification = async () => {
+    const granted = await NotificationService.testNotification();
+    if (granted) {
+      setNotificationsEnabled(true);
+      showToast('🔔 Desktop notification & chime sent successfully!', 'success');
+    } else {
+      showToast('Please enable notifications in your browser to receive desktop alerts.', 'info');
+    }
+  };
+
+  const handleToggleNotifyOnHealthySync = () => {
+    setNotifyOnHealthySync(prev => {
+      const next = !prev;
+      localStorage.setItem('celigo_notify_healthy', String(next));
+      if (user?.uid) {
+        saveUserSettings(user.uid, { notifyOnHealthySync: next }).catch(console.error);
+      }
+      showToast(next ? '✓ Healthy sync notifications enabled (alerts on 0 errors).' : 'Healthy sync notifications disabled.', 'info');
+      return next;
+    });
   };
 
   const handleInstallPWA = async () => {
@@ -149,6 +186,8 @@ export default function App() {
 
   // Sync with live Celigo REST API with multi-environment ingestion & real-time progress updates
   const syncCeligoData = async (isManual = false) => {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
     setIsLoading(true);
     setIsSyncing(true);
     setSyncProgress(12);
@@ -157,6 +196,10 @@ export default function App() {
     if (isManual) {
       setShowSyncModal(true);
     }
+
+    // Set initial sync timestamp to prevent interval collision during execution
+    const syncStartTime = Date.now();
+    localStorage.setItem('celigo_last_sync_timestamp', String(syncStartTime));
 
     try {
       // Step 1: Health check & Token Handshake
@@ -240,6 +283,10 @@ export default function App() {
             NotificationService.notifyNewErrors(newlyDiscoveredErrors.length, affectedFlows);
             // In-app alert
             showToast(`⚠️ ${newlyDiscoveredErrors.length} new Celigo integration error(s) detected during sync!`, 'error');
+          } else if (!isInitialSyncRef.current && fetchedErrors.length === 0 && notifyOnHealthySync) {
+            // Trigger healthy sync notification if user wants to be notified even when 0 errors are found
+            NotificationService.playAlertChime();
+            NotificationService.notifyHealthySync(fetchedFlows.length, fetchedIntegrations.length);
           }
 
           isInitialSyncRef.current = false;
@@ -302,7 +349,10 @@ export default function App() {
         setIsSyncing(false);
       }, 1000);
     } finally {
+      const finishTime = Date.now();
+      localStorage.setItem('celigo_last_sync_timestamp', String(finishTime));
       setIsLoading(false);
+      isSyncingRef.current = false;
     }
   };
 
@@ -311,6 +361,7 @@ export default function App() {
     if (!user) return;
 
     const checkAndSync = () => {
+      if (isSyncingRef.current) return;
       const storedLastSync = Number(localStorage.getItem('celigo_last_sync_timestamp') || 0);
       const intervalMs = autoSyncIntervalMinutes * 60 * 1000;
       const now = Date.now();
@@ -329,6 +380,7 @@ export default function App() {
     checkAndSync();
 
     const intervalTimer = setInterval(() => {
+      if (isSyncingRef.current) return;
       const storedLastSync = Number(localStorage.getItem('celigo_last_sync_timestamp') || 0);
       const intervalMs = autoSyncIntervalMinutes * 60 * 1000;
       const now = Date.now();
@@ -342,7 +394,7 @@ export default function App() {
     }, 1000);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && !isSyncingRef.current) {
         checkAndSync();
       }
     };
@@ -356,6 +408,8 @@ export default function App() {
 
   const handleChangeAutoSyncInterval = (minutes: number) => {
     setAutoSyncIntervalMinutes(minutes);
+    localStorage.setItem('celigo_auto_sync_interval', String(minutes));
+    setNextSyncSecondsRemaining(minutes * 60);
     if (user?.uid) {
       saveUserSettings(user.uid, { autoSyncIntervalMinutes: minutes }).catch(console.error);
     }
@@ -407,6 +461,11 @@ export default function App() {
               });
               if (settings.autoSyncIntervalMinutes) {
                 setAutoSyncIntervalMinutes(settings.autoSyncIntervalMinutes);
+                localStorage.setItem('celigo_auto_sync_interval', String(settings.autoSyncIntervalMinutes));
+              }
+              if (settings.notifyOnHealthySync !== undefined) {
+                setNotifyOnHealthySync(settings.notifyOnHealthySync);
+                localStorage.setItem('celigo_notify_healthy', String(settings.notifyOnHealthySync));
               }
             }
           });
@@ -728,31 +787,46 @@ export default function App() {
       const { errorIds, flowId, action, isBatch, purgeFlag } = waitingStateRef.current;
       const updatedErrorIds = new Set(errorIds);
 
-      setErrors(prev =>
-        prev.map(e => {
-          const matchId = action === 'retry' ? (e.retryDataKey || e.id || '') : (e.id || '');
-          if (updatedErrorIds.has(matchId) || (e.id && updatedErrorIds.has(e.id))) {
-            return {
-              ...e, 
-              status: 'resolved', 
-              retryCount: action === 'retry' ? ((e.retryCount || 0) + 1) : e.retryCount,
-              resolutionMethod: action === 'resolve' && purgeFlag ? 'purged' : e.resolutionMethod
-            };
-          }
-          return e;
-        })
-      );
-
-      if (flowId) {
-        setFlows(prev =>
-          prev.map(f => f.id === flowId ? { ...f, unresolvedErrors: 0, status: 'healthy' } : f)
-        );
-      }
-
       if (action === 'retry') {
+        // Mark errors as enqueued for retry / reprocessing (increment retry count, record retry time)
+        setErrors(prev =>
+          prev.map(e => {
+            const matchId = e.retryDataKey || e.id || '';
+            if (updatedErrorIds.has(matchId) || (e.id && updatedErrorIds.has(e.id))) {
+              return {
+                ...e, 
+                status: 'retrying', 
+                retryCount: (e.retryCount || 0) + 1,
+                lastRetriedAt: new Date().toISOString(),
+                resolutionMethod: 'retried'
+              };
+            }
+            return e;
+          })
+        );
         confetti({ particleCount: isBatch ? 60 : 50, spread: isBatch ? 70 : 60, origin: { y: 0.7 } });
-        showToast(`✓ Successfully reprocessed ${isBatch ? errorIds.length + ' records' : 'record'} in Celigo!`, 'success');
+        showToast(`🚀 Dispatched retry to Celigo! ${isBatch ? errorIds.length + ' records' : 'Record'} enqueued for reprocessing.`, 'success');
       } else {
+        // Purge/Resolve action permanently resolves the error in Celigo queue
+        setErrors(prev =>
+          prev.map(e => {
+            const matchId = e.id || '';
+            if (updatedErrorIds.has(matchId) || (e.id && updatedErrorIds.has(e.id))) {
+              return {
+                ...e, 
+                status: 'resolved', 
+                resolutionMethod: purgeFlag ? 'purged' : 'manual'
+              };
+            }
+            return e;
+          })
+        );
+
+        if (flowId) {
+          setFlows(prev =>
+            prev.map(f => f.id === flowId ? { ...f, unresolvedErrors: 0, status: 'healthy' } : f)
+          );
+        }
         showToast(`✓ Resolved ${isBatch ? errorIds.length + ' records' : 'record'} in Celigo queue.`, 'success');
       }
     }
@@ -897,7 +971,10 @@ export default function App() {
         autoSyncIntervalMinutes={autoSyncIntervalMinutes}
         nextSyncCountdown={formatCountdown(nextSyncSecondsRemaining)}
         notificationsEnabled={notificationsEnabled}
+        notifyOnHealthySync={notifyOnHealthySync}
         onRequestNotificationPermission={handleRequestNotificationPermission}
+        onTestNotification={handleTestNotification}
+        onToggleNotifyOnHealthySync={handleToggleNotifyOnHealthySync}
         onChangeAutoSyncInterval={handleChangeAutoSyncInterval}
       />
 

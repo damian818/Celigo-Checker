@@ -46,7 +46,10 @@ interface HeaderProps {
   autoSyncIntervalMinutes?: number;
   nextSyncCountdown?: string;
   notificationsEnabled?: boolean;
+  notifyOnHealthySync?: boolean;
   onRequestNotificationPermission?: () => void;
+  onTestNotification?: () => void;
+  onToggleNotifyOnHealthySync?: () => void;
   onChangeAutoSyncInterval?: (minutes: number) => void;
 }
 
@@ -73,10 +76,14 @@ export const Header: React.FC<HeaderProps> = ({
   autoSyncIntervalMinutes = 30,
   nextSyncCountdown = '',
   notificationsEnabled = false,
+  notifyOnHealthySync = true,
   onRequestNotificationPermission,
+  onTestNotification,
+  onToggleNotifyOnHealthySync,
   onChangeAutoSyncInterval
 }) => {
   const [showSyncIntervalMenu, setShowSyncIntervalMenu] = useState(false);
+  const [showNotificationMenu, setShowNotificationMenu] = useState(false);
 
   return (
     <header className="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-40 shadow-md">
@@ -150,28 +157,85 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5">
-          {/* Notifications Permission Toggle */}
-          <button
-            onClick={onRequestNotificationPermission}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition cursor-pointer ${
-              notificationsEnabled
-                ? 'bg-sky-950/60 text-sky-300 border-sky-700/60 hover:bg-sky-900/60'
-                : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-slate-200'
-            }`}
-            title={notificationsEnabled ? 'Desktop notifications enabled for new Celigo errors' : 'Enable browser notifications for auto-sync alerts'}
-          >
-            {notificationsEnabled ? (
-              <>
-                <BellRing className="w-3.5 h-3.5 text-sky-400" />
-                <span className="hidden sm:inline">Alerts Active</span>
-              </>
-            ) : (
-              <>
-                <Bell className="w-3.5 h-3.5 text-slate-400" />
-                <span className="hidden sm:inline">Enable Alerts</span>
-              </>
+          {/* Notifications Permission & Settings Popover */}
+          <div className="relative">
+            <button
+              onClick={() => setShowNotificationMenu(!showNotificationMenu)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                notificationsEnabled
+                  ? 'bg-sky-950/60 text-sky-300 border-sky-700/60 hover:bg-sky-900/60'
+                  : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-slate-200'
+              }`}
+              title="Configure browser desktop notifications & audio alerts"
+            >
+              {notificationsEnabled ? (
+                <>
+                  <BellRing className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="hidden sm:inline">Alerts Active</span>
+                </>
+              ) : (
+                <>
+                  <Bell className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="hidden sm:inline">Enable Alerts</span>
+                </>
+              )}
+            </button>
+
+            {showNotificationMenu && (
+              <div className="absolute right-0 mt-1.5 w-64 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                    <Bell className="w-3.5 h-3.5 text-sky-400" /> Notification Settings
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${notificationsEnabled ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60' : 'bg-slate-800 text-slate-400'}`}>
+                    {notificationsEnabled ? 'Granted' : 'Pending'}
+                  </span>
+                </div>
+
+                {!notificationsEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRequestNotificationPermission?.();
+                      setShowNotificationMenu(false);
+                    }}
+                    className="w-full py-1.5 px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <BellRing className="w-3.5 h-3.5" /> Request Browser Permission
+                  </button>
+                )}
+
+                {/* Healthy Sync Notification Toggle */}
+                <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={notifyOnHealthySync}
+                    onChange={() => onToggleNotifyOnHealthySync?.()}
+                    className="mt-0.5 rounded border-slate-700 bg-slate-950 text-sky-500 focus:ring-0 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-medium text-slate-200 block text-[11px]">Notify on Healthy Syncs</span>
+                    <span className="text-[10px] text-slate-400 block leading-snug">
+                      Receive an alert when sync finishes even if 0 errors are found
+                    </span>
+                  </div>
+                </label>
+
+                {/* Test Notification Trigger */}
+                <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onTestNotification?.();
+                    }}
+                    className="w-full py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] font-medium border border-slate-700 flex items-center justify-center gap-1 transition cursor-pointer"
+                  >
+                    🔔 Test Alert & Chime
+                  </button>
+                </div>
+              </div>
             )}
-          </button>
+          </div>
 
           {/* Auto-Sync Timer Badge & Interval Selector */}
           <div className="relative">
@@ -192,7 +256,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
                   Auto-Sync Frequency
                 </div>
-                {[15, 30, 60].map((mins) => (
+                {[5, 15, 30, 60].map((mins) => (
                   <button
                     key={mins}
                     onClick={() => {

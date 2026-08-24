@@ -1733,9 +1733,11 @@ apiRouter.post('/celigo/retry-errors', async (req: Request, res: Response) => {
 
         for (const step of targetStepList) {
           const retryUrl = `${target.stack}/v1/flows/${flowId}/${step.stepId}/retry`;
-          const hasOnlySyntheticKeys = effKeys.length === 0 || effKeys.every(k => k.includes('_summary_err') || k.startsWith('flow_') || !/^[0-9a-fA-F]{24}$/.test(k));
+          const validHexKeys = effKeys.filter(k => /^[0-9a-fA-F]{24}$/.test(k));
+          const hasOnlySyntheticKeys = effKeys.length === 0 || validHexKeys.length === 0 || effKeys.some(k => k.includes('_summary_err') || k.startsWith('flow_'));
 
           if (selectAll || hasOnlySyntheticKeys) {
+            // Bulk retry all errors on this step
             const bulkResp = await fetch(retryUrl, {
               method: 'POST',
               headers: {
@@ -1771,36 +1773,77 @@ apiRouter.post('/celigo/retry-errors', async (req: Request, res: Response) => {
               }
             }
           } else {
-            const resp = await fetch(retryUrl, {
+            // Try object with retryDataKeys
+            const keysToTry = validHexKeys.length > 0 ? validHexKeys : effKeys;
+            const objResp = await fetch(retryUrl, {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${target.token}`,
                 'Content-Type': 'application/json'
               },
-              body: JSON.stringify(effKeys)
+              body: JSON.stringify({ retryDataKeys: keysToTry })
             });
 
-            if (resp.ok || resp.status === 204 || resp.status === 202) {
+            if (objResp.ok || objResp.status === 204 || objResp.status === 202) {
               celigoApiSuccess = true;
-              returnedJob = resp.status !== 204 ? await resp.json().catch(() => null) : null;
+              returnedJob = objResp.status !== 204 ? await objResp.json().catch(() => null) : null;
+              break;
+            }
+
+            // Try array of keys
+            const arrResp = await fetch(retryUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${target.token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(keysToTry)
+            });
+
+            if (arrResp.ok || arrResp.status === 204 || arrResp.status === 202) {
+              celigoApiSuccess = true;
+              returnedJob = arrResp.status !== 204 ? await arrResp.json().catch(() => null) : null;
+              break;
+            }
+
+            // Fallback: Try selectAll on the step
+            const fallbackBulk = await fetch(retryUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${target.token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ selectAll: true })
+            });
+
+            if (fallbackBulk.ok || fallbackBulk.status === 204 || fallbackBulk.status === 202) {
+              celigoApiSuccess = true;
+              returnedJob = fallbackBulk.status !== 204 ? await fallbackBulk.json().catch(() => null) : null;
               break;
             } else {
-              const altResp = await fetch(retryUrl, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${target.token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ retryDataKeys: effKeys })
-              });
-              if (altResp.ok || altResp.status === 204 || altResp.status === 202) {
-                celigoApiSuccess = true;
-                returnedJob = altResp.status !== 204 ? await altResp.json().catch(() => null) : null;
-                break;
-              } else {
-                lastErrorDetails = await altResp.text().catch(() => 'HTTP ' + altResp.status);
-              }
+              lastErrorDetails = await objResp.text().catch(() => 'HTTP ' + objResp.status);
             }
+          }
+        }
+
+        // Flow-level fallback endpoint
+        if (!celigoApiSuccess && flowId) {
+          try {
+            const flowRetryUrl = `${target.stack}/v1/flows/${flowId}/retry`;
+            const flowRetryResp = await fetch(flowRetryUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${target.token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ selectAll: true })
+            });
+            if (flowRetryResp.ok || flowRetryResp.status === 204 || flowRetryResp.status === 202) {
+              celigoApiSuccess = true;
+              returnedJob = flowRetryResp.status !== 204 ? await flowRetryResp.json().catch(() => null) : null;
+            }
+          } catch {
+            // Ignore flow level fallback
           }
         }
 

@@ -29,7 +29,7 @@ export class NotificationService {
   }
 
   /**
-   * Dispatch a native OS desktop notification
+   * Dispatch a native OS desktop notification for newly discovered or unresolved errors
    */
   public static notifyNewErrors(count: number, flowNames: string[] = []): void {
     if (!('Notification' in window) || Notification.permission !== 'granted') {
@@ -37,31 +37,90 @@ export class NotificationService {
     }
 
     const flowSummary = flowNames.slice(0, 2).join(', ') + (flowNames.length > 2 ? ` and ${flowNames.length - 2} more` : '');
-    const title = `⚠️ ${count} New Celigo Integration Error${count > 1 ? 's' : ''} Detected`;
+    const title = `⚠️ ${count} Celigo Integration Error${count > 1 ? 's' : ''} Detected`;
     const body = flowNames.length > 0 
       ? `Flows affected: ${flowSummary}. Open Gappify Remediation Hub to inspect & auto-heal.`
-      : `${count} unresolved error(s) flagged in recent sync. Click to inspect payloads.`;
+      : `${count} unresolved error(s) flagged in Celigo. Click to view and remediate.`;
 
+    this.dispatchNotification(title, body, 'celigo-error-alert');
+  }
+
+  /**
+   * Dispatch a notification when sync completes and all flows are healthy (0 errors)
+   */
+  public static notifyHealthySync(flowsCount: number, integrationsCount = 0): void {
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      return;
+    }
+
+    const title = `✅ Celigo Sync: All Integrations Healthy`;
+    const body = `Monitored ${flowsCount} flow${flowsCount !== 1 ? 's' : ''} across Celigo. 0 unresolved errors found.`;
+
+    this.dispatchNotification(title, body, 'celigo-healthy-sync');
+  }
+
+  /**
+   * Trigger a test notification to verify OS banners and chime
+   */
+  public static async testNotification(): Promise<boolean> {
+    const permission = await this.requestPermission();
+    if (permission === 'granted') {
+      this.playAlertChime();
+      this.dispatchNotification(
+        '🔔 Test Alert: Gappify Celigo Remediation Hub',
+        'Desktop notifications & audio alerts are active! You will receive live sync alerts.',
+        'test-notification'
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Centralized safe notification dispatcher (Service Worker + Window fallback)
+   */
+  private static dispatchNotification(title: string, body: string, tag: string): void {
     try {
-      // Try service worker notification first for better mobile/desktop PWA support
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.ready.then((reg) => {
-          reg.showNotification(title, {
-            body,
-            icon: '/favicon-32x32.png',
-            badge: '/favicon-16x16.png',
-            tag: 'celigo-new-error',
-            data: { url: '/?tab=errors' }
-          } as any);
-        });
+        navigator.serviceWorker.ready
+          .then((reg) => {
+            reg.showNotification(title, {
+              body,
+              icon: '/favicon-32x32.png',
+              badge: '/favicon-16x16.png',
+              tag,
+              renotify: true,
+              data: { url: '/?tab=errors' }
+            } as any).catch(() => {
+              this.createWindowNotification(title, body, tag);
+            });
+          })
+          .catch(() => {
+            this.createWindowNotification(title, body, tag);
+          });
       } else {
-        new Notification(title, {
-          body,
-          icon: '/favicon-32x32.png',
-        });
+        this.createWindowNotification(title, body, tag);
       }
     } catch (e) {
-      console.warn('Native notification failed, falling back', e);
+      console.warn('Notification dispatch failed, attempting window fallback:', e);
+      this.createWindowNotification(title, body, tag);
+    }
+  }
+
+  private static createWindowNotification(title: string, body: string, tag: string): void {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const n = new Notification(title, {
+        body,
+        icon: '/favicon-32x32.png',
+        tag,
+      });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    } catch (err) {
+      console.warn('Native Window Notification failed:', err);
     }
   }
 
@@ -104,3 +163,4 @@ export class NotificationService {
     }
   }
 }
+

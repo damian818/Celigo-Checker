@@ -848,6 +848,11 @@ export const ErrorAnalysisView: React.FC<ErrorAnalysisViewProps> = ({
                                         <CheckCircle2 className="w-3 h-3" />
                                         Resolved
                                       </span>
+                                    ) : rec.status === 'retrying' ? (
+                                      <span className="text-[10px] text-sky-400 font-bold flex items-center gap-1 bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-800/60">
+                                        <RefreshCw className="w-3 h-3 animate-spin text-sky-400" />
+                                        Enqueued for Retry (Attempt #{rec.retryCount || 1})
+                                      </span>
                                     ) : (
                                       <span className="text-[10px] text-rose-400 font-bold">Unresolved</span>
                                     )}

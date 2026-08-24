@@ -15,6 +15,7 @@ export interface UserSettings {
   gmailSubjectTemplate?: string;
   gmailBodyTemplate?: string;
   autoSyncIntervalMinutes?: number;
+  notifyOnHealthySync?: boolean;
   lastSyncTimestamp?: number;
   updatedAt?: string;
 }
@@ -124,20 +125,23 @@ export function interpolateTemplate(template: string, error: CeligoErrorRecord):
 export async function saveUserSettings(userId: string, settings: Partial<UserSettings>): Promise<void> {
   const path = `user_settings/${userId}`;
   try {
-    const payload: UserSettings = {
+    const payload: Record<string, any> = {
       userId,
-      email: settings.email,
-      prodToken: settings.prodToken || '',
-      sandboxToken: settings.sandboxToken || '',
-      celigoStack: settings.celigoStack || 'us',
-      gchatWebhookUrl: settings.gchatWebhookUrl || '',
-      gmailDefaultRecipients: settings.gmailDefaultRecipients || DEFAULT_GMAIL_RECIPIENTS,
-      gchatMessageTemplate: settings.gchatMessageTemplate || DEFAULT_GCHAT_TEMPLATE,
-      gmailSubjectTemplate: settings.gmailSubjectTemplate || DEFAULT_GMAIL_SUBJECT,
-      gmailBodyTemplate: settings.gmailBodyTemplate || DEFAULT_GMAIL_BODY,
-      autoSyncIntervalMinutes: settings.autoSyncIntervalMinutes || 30,
       updatedAt: new Date().toISOString(),
     };
+
+    if (settings.email !== undefined) payload.email = settings.email;
+    if (settings.prodToken !== undefined) payload.prodToken = settings.prodToken;
+    if (settings.sandboxToken !== undefined) payload.sandboxToken = settings.sandboxToken;
+    if (settings.celigoStack !== undefined) payload.celigoStack = settings.celigoStack;
+    if (settings.gchatWebhookUrl !== undefined) payload.gchatWebhookUrl = settings.gchatWebhookUrl;
+    if (settings.gmailDefaultRecipients !== undefined) payload.gmailDefaultRecipients = settings.gmailDefaultRecipients;
+    if (settings.gchatMessageTemplate !== undefined) payload.gchatMessageTemplate = settings.gchatMessageTemplate;
+    if (settings.gmailSubjectTemplate !== undefined) payload.gmailSubjectTemplate = settings.gmailSubjectTemplate;
+    if (settings.gmailBodyTemplate !== undefined) payload.gmailBodyTemplate = settings.gmailBodyTemplate;
+    if (settings.autoSyncIntervalMinutes !== undefined) payload.autoSyncIntervalMinutes = settings.autoSyncIntervalMinutes;
+    if (settings.notifyOnHealthySync !== undefined) payload.notifyOnHealthySync = settings.notifyOnHealthySync;
+    if (settings.lastSyncTimestamp !== undefined) payload.lastSyncTimestamp = settings.lastSyncTimestamp;
 
     await setDoc(doc(db, 'user_settings', userId), payload, { merge: true });
   } catch (error) {
