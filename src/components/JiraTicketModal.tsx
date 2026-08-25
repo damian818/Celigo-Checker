@@ -26,6 +26,7 @@ import { CeligoErrorRecord, JiraTicket } from '../types/celigo';
 import { createJiraTicket, getJiraStatus } from '../services/apiClient';
 import { buildCeligoFlowUrl } from '../utils/celigoUrl';
 import { auth } from '../services/firebase';
+import { savePersistentJiraLink } from '../services/jiraLinkService';
 import {
   identifyFlowType,
   getCompanyNameOrIntegration,
@@ -318,8 +319,22 @@ ${error.rootCauseSimple || 'Data validation failed against the target system API
         status: 'Linked',
         assignee: { name: 'N/A' },
       };
+      
+      const targetErrorId = error.id || inboundCeligoErrorId;
+      await savePersistentJiraLink({
+        errorId: targetErrorId,
+        jiraTicketKey: key,
+        jiraTicketUrl: fakeTicket.url,
+        summary: fakeTicket.summary,
+        status: fakeTicket.status,
+        flowId: error.flowId,
+        flowName: error.flowName,
+        integrationName: error.integrationName,
+        linkedBy: loggedInUserEmail,
+      });
+
       setSuccessTicket(fakeTicket);
-      onTicketCreated(fakeTicket, error.id || inboundCeligoErrorId);
+      onTicketCreated(fakeTicket, targetErrorId);
       confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
       return;
     }
@@ -379,8 +394,23 @@ ${error.rootCauseSimple || 'Data validation failed against the target system API
       };
 
       const result = await createJiraTicket(payload);
+      const targetErrorId = error.id || inboundCeligoErrorId;
+
+      await savePersistentJiraLink({
+        errorId: targetErrorId,
+        jiraTicketKey: result.ticket.key,
+        jiraTicketUrl: result.ticket.url,
+        summary: result.ticket.summary,
+        status: result.ticket.status,
+        assigneeName: assigneeName,
+        flowId: error.flowId,
+        flowName: error.flowName,
+        integrationName: error.integrationName,
+        linkedBy: loggedInUserEmail,
+      });
+
       setSuccessTicket(result.ticket);
-      onTicketCreated(result.ticket, error.id || inboundCeligoErrorId);
+      onTicketCreated(result.ticket, targetErrorId);
       confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
     } catch (err: any) {
       console.error('Failed to create Jira ticket:', err);

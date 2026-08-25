@@ -43,15 +43,11 @@ class BackgroundSyncEngine {
   private vapidKeys: { publicKey: string; privateKey: string };
 
   constructor() {
-    // Generate or use deterministic VAPID keys for push notifications
-    const pubKey = process.env.VAPID_PUBLIC_KEY || 'BCd1T9W3xG6mQy-X0q-eX7uX9P2bZ4yQ8_3A1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U0V1W2X3Y4Z';
-    const privKey = process.env.VAPID_PRIVATE_KEY || 'A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0U1V';
+    // Deterministic production VAPID keypair
+    const pubKey = process.env.VAPID_PUBLIC_KEY || 'BC-aI6f7U9hVihDivnbHpvFYRfvFgP0EgaMGPVIjCzr7MBNPsnUqiCG_NwnpLYcw5Gzpyn-VWHeBxGYogzJ2cRo';
+    const privKey = process.env.VAPID_PRIVATE_KEY || 'gNJKUDv5i7mZncFQywwfhAONxwP5e1-yrUxY4d6O27A';
     
-    try {
-      this.vapidKeys = webpush.generateVAPIDKeys();
-    } catch {
-      this.vapidKeys = { publicKey: pubKey, privateKey: privKey };
-    }
+    this.vapidKeys = { publicKey: pubKey, privateKey: privKey };
 
     try {
       webpush.setVapidDetails(
@@ -304,7 +300,10 @@ class BackgroundSyncEngine {
         await webpush.sendNotification({
           endpoint: sub.endpoint,
           keys: sub.keys
-        }, payloadString);
+        }, payloadString, {
+          TTL: 86400,
+          urgency: 'high'
+        });
         sentCount++;
         validSubs.push(sub);
       } catch (pushErr: any) {

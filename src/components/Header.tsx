@@ -18,14 +18,18 @@ import {
   BellRing,
   Clock,
   CheckCircle2,
-  Smartphone
+  Smartphone,
+  BarChart3,
+  Cpu
 } from 'lucide-react';
 import type { User } from '../services/firebase';
 import { GappifyLogo } from './GappifyLogo';
 
+export type HeaderTab = 'dashboard' | 'errors' | 'analytics' | 'mcp';
+
 interface HeaderProps {
-  activeTab: 'dashboard' | 'errors';
-  setActiveTab: (tab: 'dashboard' | 'errors') => void;
+  activeTab: HeaderTab;
+  setActiveTab: (tab: HeaderTab) => void;
   unresolvedCount: number;
   onOpenCustomAnalyzer: () => void;
   onOpenTokensModal: () => void;
@@ -527,6 +531,33 @@ export const Header: React.FC<HeaderProps> = ({
               {unresolvedCount}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('analytics')}
+          className={`px-4 py-2.5 text-xs font-medium border-b-2 flex items-center gap-2 transition whitespace-nowrap cursor-pointer ${
+            activeTab === 'analytics'
+              ? 'border-indigo-400 text-indigo-400 font-semibold bg-slate-800/30'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-emerald-400" />
+          Historical Statistics & Trends
+        </button>
+
+        <button
+          onClick={() => setActiveTab('mcp')}
+          className={`px-4 py-2.5 text-xs font-medium border-b-2 flex items-center gap-2 transition whitespace-nowrap cursor-pointer ${
+            activeTab === 'mcp'
+              ? 'border-indigo-400 text-indigo-400 font-semibold bg-slate-800/30'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+          }`}
+        >
+          <Cpu className="w-4 h-4 text-indigo-400" />
+          Celigo MCP Copilot
+          <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">
+            Tools
+          </span>
         </button>
       </div>
     </header>

@@ -48,7 +48,7 @@
         },
         "autoSyncIntervalMinutes": {
           "type": "number",
-          "description": "Auto-sync interval in minutes (15, 30, 60)"
+          "description": "Auto-sync interval in minutes (5, 15, 30, 60)"
         },
         "updatedAt": {
           "type": "string",
@@ -56,12 +56,160 @@
         }
       },
       "required": ["userId"]
+    },
+    "CeligoJiraLink": {
+      "title": "CeligoJiraLink",
+      "description": "Persistent mapping between Celigo error records and created or linked Jira GS tickets",
+      "type": "object",
+      "properties": {
+        "errorId": {
+          "type": "string",
+          "description": "Unique identifier of the Celigo error"
+        },
+        "jiraTicketKey": {
+          "type": "string",
+          "description": "Jira ticket key (e.g. GS-1042)"
+        },
+        "jiraTicketUrl": {
+          "type": "string",
+          "description": "Direct URL link to Jira ticket in Atlassian"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Jira issue summary line"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current status of the Jira ticket (e.g. To Do, In Progress, Done)"
+        },
+        "assigneeName": {
+          "type": "string",
+          "description": "Assigned engineer or support team member"
+        },
+        "flowId": {
+          "type": "string",
+          "description": "Associated Celigo flow ID"
+        },
+        "flowName": {
+          "type": "string",
+          "description": "Associated Celigo flow name"
+        },
+        "integrationName": {
+          "type": "string",
+          "description": "Parent integration name"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp when ticket link was created"
+        },
+        "linkedBy": {
+          "type": "string",
+          "description": "User email or UID who created or linked the ticket"
+        }
+      },
+      "required": ["errorId", "jiraTicketKey"]
+    },
+    "CeligoSyncSnapshot": {
+      "title": "CeligoSyncSnapshot",
+      "description": "Historical Celigo integration health and error volume snapshot for statistics and trend analysis",
+      "type": "object",
+      "properties": {
+        "snapshotId": {
+          "type": "string",
+          "description": "Unique snapshot ID (e.g. snap_1787654000)"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "ISO timestamp of sync execution"
+        },
+        "epochMs": {
+          "type": "number",
+          "description": "Numeric epoch millisecond timestamp for sorting and time ranges"
+        },
+        "totalErrors": {
+          "type": "number",
+          "description": "Total detected error records"
+        },
+        "unresolvedErrors": {
+          "type": "number",
+          "description": "Count of unresolved/open errors"
+        },
+        "resolvedErrors": {
+          "type": "number",
+          "description": "Count of resolved errors in this period"
+        },
+        "retriedCount": {
+          "type": "number",
+          "description": "Count of retried errors"
+        },
+        "activeFlowsCount": {
+          "type": "number",
+          "description": "Total active flows inspected"
+        },
+        "healthyFlowsCount": {
+          "type": "number",
+          "description": "Count of flows with zero errors"
+        },
+        "healthScore": {
+          "type": "number",
+          "description": "Calculated health score percentage (0-100)"
+        },
+        "linkedJiraCount": {
+          "type": "number",
+          "description": "Number of active errors linked to Jira tickets"
+        },
+        "source": {
+          "type": "string",
+          "description": "Origin of sync (manual, auto_client, server_background)"
+        }
+      },
+      "required": ["snapshotId", "timestamp", "epochMs"]
+    },
+    "PushSubscription": {
+      "title": "PushSubscription",
+      "description": "Web push endpoint and cryptographic keys registered for 24/7 background OS alerts",
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "Push service endpoint URI"
+        },
+        "keys": {
+          "type": "object",
+          "description": "P256DH and Auth cryptographic keys"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the subscribing user"
+        },
+        "userAgent": {
+          "type": "string",
+          "description": "Browser user agent"
+        },
+        "subscribedAt": {
+          "type": "string",
+          "description": "ISO registration timestamp"
+        }
+      },
+      "required": ["endpoint"]
     }
   },
   "firestore": {
     "/user_settings/{userId}": {
       "schema": "UserSettings",
       "description": "Stores user-scoped settings, tokens, GChat hooks, Gmail recipients, and notification templates for cross-device synchronization"
+    },
+    "/celigo_jira_links/{errorId}": {
+      "schema": "CeligoJiraLink",
+      "description": "Persistent mapping between Celigo errors and Jira tickets to prevent ticket loss across syncs"
+    },
+    "/celigo_sync_history/{snapshotId}": {
+      "schema": "CeligoSyncSnapshot",
+      "description": "Historical Celigo health snapshots for analytics, MTTR calculations, and trend reporting"
+    },
+    "/push_subscriptions/{subscriptionId}": {
+      "schema": "PushSubscription",
+      "description": "Stores device push subscriptions for 24/7 background notifications"
     }
   }
 }

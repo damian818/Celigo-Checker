@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { analyzeCeligoErrorWithGemini, chatWithCeligoCopilot } from './geminiService.js';
 import { backgroundSyncEngine } from './backgroundSyncEngine.js';
+import { CELIGO_MCP_TOOLS, executeMcpTool, chatWithCeligoMcp } from './mcpCeligoEngine.js';
 
 export const apiRouter = express.Router();
 
@@ -2369,4 +2370,145 @@ apiRouter.post('/background-sync/trigger', async (req: Request, res: Response) =
     return res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// ============================================================================
+// CELIGO MODEL CONTEXT PROTOCOL (MCP) ENDPOINTS
+// ============================================================================
+
+// 1. Get MCP Tools Catalog
+apiRouter.get('/celigo/mcp/tools', (req: Request, res: Response) => {
+  return res.json({
+    protocolVersion: '2024-11-05',
+    serverInfo: {
+      name: 'celigo-integrator-mcp-server',
+      version: '1.2.0',
+      description: 'Model Context Protocol server for Celigo integrator.io integration lifecycle and incident auto-remediation',
+    },
+    tools: CELIGO_MCP_TOOLS,
+  });
+});
+
+// 2. Direct MCP Tool Execution
+apiRouter.post('/celigo/mcp/execute', async (req: Request, res: Response) => {
+  try {
+    const { toolName, arguments: toolArgs, context } = req.body;
+    if (!toolName) {
+      return res.status(400).json({ error: 'toolName is required' });
+    }
+
+    const result = await executeMcpTool(toolName, toolArgs || {}, context);
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Error executing MCP tool:', err);
+    return res.status(500).json({ error: err.message || 'MCP tool execution failed' });
+  }
+});
+
+// 3. Natural Language MCP Assistant (Gemini + Celigo Tools)
+apiRouter.post('/celigo/mcp/chat', async (req: Request, res: Response) => {
+  try {
+    const { prompt, history, context } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: 'prompt is required' });
+    }
+
+    const result = await chatWithCeligoMcp(prompt, history || [], context || {});
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Error in MCP chat:', err);
+    return res.status(500).json({ error: err.message || 'MCP chat failed' });
+  }
+});
+
+// 4. Standard MCP JSON-RPC 2.0 Endpoint
+apiRouter.post('/celigo/mcp', async (req: Request, res: Response) => {
+  try {
+    const { jsonrpc, id, method, params } = req.body;
+    if (jsonrpc !== '2.0') {
+      return res.status(400).json({ jsonrpc: '2.0', id: id || null, error: { code: -32600, message: 'Invalid Request: Expected jsonrpc 2.0' } });
+    }
+
+    switch (method) {
+      case 'initialize':
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: { listChanged: false },
+              resources: { subscribe: false, listChanged: false },
+              prompts: { listChanged: false },
+            },
+            serverInfo: {
+              name: 'celigo-integrator-mcp-server',
+              version: '1.2.0',
+            },
+          },
+        });
+
+      case 'tools/list':
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            tools: CELIGO_MCP_TOOLS,
+          },
+        });
+
+      case 'tools/call': {
+        const { name, arguments: toolArgs } = params || {};
+        if (!name) {
+          return res.status(400).json({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing tool name parameter' } });
+        }
+        const callRes = await executeMcpTool(name, toolArgs || {});
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: callRes,
+        });
+      }
+
+      case 'resources/list':
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            resources: [
+              { uri: 'celigo://integrations/all', name: 'All Celigo Integrations', mimeType: 'application/json' },
+              { uri: 'celigo://errors/unresolved', name: 'Unresolved Flow Errors', mimeType: 'application/json' },
+              { uri: 'celigo://health/overview', name: 'System Health Summary', mimeType: 'application/json' },
+            ],
+          },
+        });
+
+      case 'prompts/list':
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            prompts: [
+              { name: 'diagnose_netSuite_tax_errors', description: 'Diagnose NetSuite Tax Schedule mapping rejections' },
+              { name: 'retry_all_rate_limited', description: 'Retry all 429 rate limited records with exponential backoff' },
+              { name: 'generate_jira_incident_report', description: 'Compile active errors into Atlassian Jira GS tickets' },
+            ],
+          },
+        });
+
+      default:
+        return res.status(404).json({
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32601, message: `Method not found: ${method}` },
+        });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      jsonrpc: '2.0',
+      id: req.body?.id || null,
+      error: { code: -32603, message: `Internal error: ${err.message}` },
+    });
+  }
+});
+
 

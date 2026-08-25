@@ -13,7 +13,7 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.:]+$');
     }
 
     function isValidUserSettings(data) {
@@ -34,12 +34,70 @@ service cloud.firestore {
         && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 128));
     }
 
-    // User Settings Collection (Cross-device persistence per authenticated user)
+    function isValidJiraLink(data) {
+      return data.errorId is string && data.errorId.size() > 0 && data.errorId.size() <= 256
+        && data.jiraTicketKey is string && data.jiraTicketKey.size() > 0 && data.jiraTicketKey.size() <= 64
+        && (!('jiraTicketUrl' in data) || (data.jiraTicketUrl is string && data.jiraTicketUrl.size() <= 1024))
+        && (!('summary' in data) || (data.summary is string && data.summary.size() <= 1024))
+        && (!('status' in data) || (data.status is string && data.status.size() <= 128))
+        && (!('assigneeName' in data) || (data.assigneeName is string && data.assigneeName.size() <= 256))
+        && (!('flowId' in data) || (data.flowId is string && data.flowId.size() <= 256))
+        && (!('flowName' in data) || (data.flowName is string && data.flowName.size() <= 512))
+        && (!('integrationName' in data) || (data.integrationName is string && data.integrationName.size() <= 512))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 128))
+        && (!('linkedBy' in data) || (data.linkedBy is string && data.linkedBy.size() <= 256));
+    }
+
+    function isValidSyncSnapshot(data) {
+      return data.snapshotId is string && data.snapshotId.size() > 0 && data.snapshotId.size() <= 128
+        && data.timestamp is string && data.timestamp.size() <= 128
+        && data.epochMs is number
+        && (!('totalErrors' in data) || data.totalErrors is number)
+        && (!('unresolvedErrors' in data) || data.unresolvedErrors is number)
+        && (!('resolvedErrors' in data) || data.resolvedErrors is number)
+        && (!('retriedCount' in data) || data.retriedCount is number)
+        && (!('activeFlowsCount' in data) || data.activeFlowsCount is number)
+        && (!('healthyFlowsCount' in data) || data.healthyFlowsCount is number)
+        && (!('healthScore' in data) || (data.healthScore is number && data.healthScore >= 0 && data.healthScore <= 100))
+        && (!('linkedJiraCount' in data) || data.linkedJiraCount is number)
+        && (!('source' in data) || (data.source is string && data.source.size() <= 64));
+    }
+
+    function isValidPushSubscription(data) {
+      return data.endpoint is string && data.endpoint.size() > 0 && data.endpoint.size() <= 4096
+        && (!('userId' in data) || (data.userId is string && data.userId.size() <= 128))
+        && (!('userAgent' in data) || (data.userAgent is string && data.userAgent.size() <= 1024))
+        && (!('subscribedAt' in data) || (data.subscribedAt is string && data.subscribedAt.size() <= 128));
+    }
+
+    // 1. User Settings Collection
     match /user_settings/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
       allow list: if false;
       allow create, update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isValidUserSettings(request.resource.data);
       allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
     }
+
+    // 2. Celigo Jira Links Collection (Accessible to authenticated team members)
+    match /celigo_jira_links/{errorId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidJiraLink(request.resource.data);
+      allow delete: if isSignedIn();
+    }
+
+    // 3. Celigo Historical Sync Snapshots Collection
+    match /celigo_sync_history/{snapshotId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidSyncSnapshot(request.resource.data);
+      allow delete: if isSignedIn();
+    }
+
+    // 4. Push Subscriptions Collection
+    match /push_subscriptions/{subscriptionId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidPushSubscription(request.resource.data);
+      allow delete: if isSignedIn();
+    }
   }
 }
+

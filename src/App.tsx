@@ -10,10 +10,12 @@ import {
   Zap
 } from 'lucide-react';
 import { CeligoErrorRecord, CeligoFlow, JiraTicket } from './types/celigo';
-import { Header } from './components/Header';
+import { Header, HeaderTab } from './components/Header';
 import { SignInPage } from './components/SignInPage';
 import { DashboardView } from './components/DashboardView';
 import { ErrorAnalysisView } from './components/ErrorAnalysisView';
+import { AnalyticsDashboardView } from './components/AnalyticsDashboardView';
+import { McpConsoleView } from './components/McpConsoleView';
 import { AutomatedRemediationModal } from './components/AutomatedRemediationModal';
 import { JiraTicketModal } from './components/JiraTicketModal';
 import { NotificationModal } from './components/NotificationModal';
@@ -38,6 +40,8 @@ import { auth, googleProvider, isAllowedEmail, ALLOWED_DOMAIN, testFirestoreConn
 import { signInWithPopup, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
 import { subscribeToUserSettings, saveUserSettings } from './services/userSettingsService';
 import { saveTokens, getStoredTokens } from './services/tokenStorage';
+import { enrichErrorsWithPersistentJiraLinks, subscribeToJiraLinks, PersistentJiraLink } from './services/jiraLinkService';
+import { recordSyncSnapshot } from './services/historyAnalyticsService';
 import {
   identifyFlowType,
   getCompanyNameOrIntegration,
@@ -54,7 +58,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'errors'>('dashboard');
+  const [activeTab, setActiveTab] = useState<HeaderTab>('dashboard');
   const [waitingState, setWaitingState] = useState<{
     isOpen: boolean;
     action: 'retry' | 'resolve';
@@ -309,14 +313,20 @@ export default function App() {
               formattedSummary,
             };
           });
-          setErrors(enrichedErrors);
+
+          // Inject persistent Firestore Jira ticket linkages so ticket keys survive syncs
+          const fullyEnrichedErrors = await enrichErrorsWithPersistentJiraLinks(enrichedErrors);
+          setErrors(fullyEnrichedErrors);
           setDataSource('live');
+
+          // Record historical snapshot in Firebase Firestore for Analytics Dashboard
+          recordSyncSnapshot(fullyEnrichedErrors, fetchedFlows, isManual ? 'manual' : 'auto_client').catch(console.warn);
 
           // Detect new errors since last sync
           const currentErrorIds = new Set<string>();
           const newlyDiscoveredErrors: CeligoErrorRecord[] = [];
 
-          enrichedErrors.forEach((err: CeligoErrorRecord) => {
+          fullyEnrichedErrors.forEach((err: CeligoErrorRecord) => {
             const errorKey = err.id || err.retryDataKey || `${err.flowId}_${err.occurredAt}_${err.message}`;
             currentErrorIds.add(errorKey);
             if (!isInitialSyncRef.current && !prevErrorIdsRef.current.has(errorKey)) {
@@ -327,12 +337,12 @@ export default function App() {
           prevErrorIdsRef.current = currentErrorIds;
 
           if (!isInitialSyncRef.current) {
-            const unresolvedCount = enrichedErrors.filter((e: any) => e.status === 'unresolved').length;
+            const unresolvedCount = fullyEnrichedErrors.filter((e: any) => e.status === 'unresolved').length;
             
             if (unresolvedCount > 0 && notifyOnError) {
               const affectedFlows = Array.from(new Set(newlyDiscoveredErrors.length > 0 
                 ? newlyDiscoveredErrors.map(e => e.flowName || 'Integration Flow')
-                : enrichedErrors.filter((e: any) => e.status === 'unresolved').map((e: any) => e.flowName || 'Integration Flow')
+                : fullyEnrichedErrors.filter((e: any) => e.status === 'unresolved').map((e: any) => e.flowName || 'Integration Flow')
               ));
               
               if (soundEnabled) NotificationService.playAlertChime();
@@ -528,6 +538,7 @@ export default function App() {
     testFirestoreConnection().catch(err => console.warn('Firestore initialization notice:', err));
 
     let settingsUnsubscribe: (() => void) | null = null;
+    let jiraLinksUnsubscribe: (() => void) | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -571,6 +582,33 @@ export default function App() {
             }
           });
 
+          // Subscribe to persistent Jira ticket links from Firestore
+          if (jiraLinksUnsubscribe) jiraLinksUnsubscribe();
+          jiraLinksUnsubscribe = subscribeToJiraLinks((links) => {
+            const linkMap = new Map<string, PersistentJiraLink>();
+            links.forEach(l => {
+              if (l.errorId) linkMap.set(l.errorId, l);
+            });
+
+            setErrors(prevErrors => {
+              let hasChanges = false;
+              const updated = prevErrors.map(err => {
+                const link = linkMap.get(err.id || '') || linkMap.get(err.retryDataKey || '');
+                if (link && err.jiraTicketId !== link.jiraTicketKey) {
+                  hasChanges = true;
+                  return {
+                    ...err,
+                    jiraTicketId: link.jiraTicketKey,
+                    jiraTicketUrl: link.jiraTicketUrl,
+                    jiraTicketStatus: link.status,
+                  };
+                }
+                return err;
+              });
+              return hasChanges ? updated : prevErrors;
+            });
+          });
+
           // Only fetch Celigo data after successful domain authentication
           syncCeligoData(false);
         }
@@ -578,6 +616,10 @@ export default function App() {
         if (settingsUnsubscribe) {
           settingsUnsubscribe();
           settingsUnsubscribe = null;
+        }
+        if (jiraLinksUnsubscribe) {
+          jiraLinksUnsubscribe();
+          jiraLinksUnsubscribe = null;
         }
         setUser(null);
         setFlows([]);
@@ -592,6 +634,7 @@ export default function App() {
     return () => {
       unsubscribeAuth();
       if (settingsUnsubscribe) settingsUnsubscribe();
+      if (jiraLinksUnsubscribe) jiraLinksUnsubscribe();
     };
   }, []);
 
@@ -1096,44 +1139,62 @@ export default function App() {
             onSelectFlow={handleSelectFlowForAnalysis}
             onSelectError={(err) => setSelectedErrorForRemediation(err)}
             onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
-                onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
-                onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
-                onSwitchTab={setActiveTab}
-                onQuickRetry={handleQuickRetry}
-                onQuickResolve={handleQuickResolve}
-                onBatchRetry={handleBatchRetry}
-                onBatchResolve={handleBatchResolve}
-                isLiveConnected={isLiveConnected}
-                dataSource={dataSource}
-                onRefreshLive={() => syncCeligoData(true)}
-                isSyncing={isSyncing}
-                syncProgress={syncProgress}
-                syncStepMessage={syncStepMessage}
-                onShowSyncModal={() => setShowSyncModal(true)}
-              />
-            )}
+            onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
+            onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
+            onSwitchTab={setActiveTab}
+            onQuickRetry={handleQuickRetry}
+            onQuickResolve={handleQuickResolve}
+            onBatchRetry={handleBatchRetry}
+            onBatchResolve={handleBatchResolve}
+            isLiveConnected={isLiveConnected}
+            dataSource={dataSource}
+            onRefreshLive={() => syncCeligoData(true)}
+            isSyncing={isSyncing}
+            syncProgress={syncProgress}
+            syncStepMessage={syncStepMessage}
+            onShowSyncModal={() => setShowSyncModal(true)}
+          />
+        )}
 
-            {activeTab === 'errors' && (
-              <ErrorAnalysisView
-                errors={errors}
-                flows={flows}
-                integrations={integrations}
-                selectedFlowFilter={selectedFlowFilter}
-                setSelectedFlowFilter={setSelectedFlowFilter}
-                onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
-                onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
-                onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
-                onQuickRetry={handleQuickRetry}
-                onBatchRetry={handleBatchRetry}
-                onQuickResolve={handleQuickResolve}
-                onBatchResolve={handleBatchResolve}
-                onRunInCli={handleRunInCli}
-                onIgnoreError={handleIgnoreError}
-                onUpdateError={handleUpdateError}
-                onUpdateGroup={handleUpdateGroup}
-                onAddErrors={handleAddErrors}
-              />
-            )}
+        {activeTab === 'errors' && (
+          <ErrorAnalysisView
+            errors={errors}
+            flows={flows}
+            integrations={integrations}
+            selectedFlowFilter={selectedFlowFilter}
+            setSelectedFlowFilter={setSelectedFlowFilter}
+            onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
+            onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
+            onOpenNotificationModal={(err) => setSelectedErrorForNotification(err)}
+            onQuickRetry={handleQuickRetry}
+            onBatchRetry={handleBatchRetry}
+            onQuickResolve={handleQuickResolve}
+            onBatchResolve={handleBatchResolve}
+            onRunInCli={handleRunInCli}
+            onIgnoreError={handleIgnoreError}
+            onUpdateError={handleUpdateError}
+            onUpdateGroup={handleUpdateGroup}
+            onAddErrors={handleAddErrors}
+          />
+        )}
+
+        {activeTab === 'analytics' && (
+          <AnalyticsDashboardView
+            onSwitchTab={setActiveTab}
+          />
+        )}
+
+        {activeTab === 'mcp' && (
+          <McpConsoleView
+            flows={flows}
+            errors={errors}
+            onRunInCli={handleRunInCli}
+            onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
+            onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}
+            onQuickRetry={handleQuickRetry}
+            onQuickResolve={handleQuickResolve}
+          />
+        )}
       </main>
 
       {/* Footer */}
