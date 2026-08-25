@@ -1029,8 +1029,8 @@ export default function App() {
   // Run in CLI Terminal
   const handleRunInCli = (command: string) => {
     setCliInitialCommand(command);
-    setActiveTab('cli');
-    showToast(`Loaded "${command}" into Celigo CLI Terminal`, 'info');
+    setActiveTab('mcp');
+    showToast(`Loaded "${command}" into Celigo MCP Console`, 'info');
   };
 
   // Jira Ticket Created Callback

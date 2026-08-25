@@ -47,20 +47,20 @@ export const AutomatedRemediationModal: React.FC<AutomatedRemediationModalProps>
         // Fallback default from error record
         if (isMounted) {
           setAnalysis({
-            plainEnglishSummary: error.plainEnglishSummary,
-            businessImpact: error.businessImpact,
-            rootCause: error.rootCauseSimple,
-            actionRequiredBy: error.actionRequiredBy,
-            retrySafety: error.retrySafety,
-            retrySafetyReason: error.retrySafetyReason,
-            suggestedCliCommand: error.suggestedCliCommand,
+            plainEnglishSummary: error.plainEnglishSummary || 'Integration sync error occurred on this flow.',
+            businessImpact: error.businessImpact || 'Downstream processing paused until error is resolved.',
+            rootCause: error.rootCauseSimple || 'Data validation or mapping mismatch.',
+            actionRequiredBy: (error.actionRequiredBy as any) || 'IT Support',
+            retrySafety: (error.retrySafety as any) || 'verify_data',
+            retrySafetyReason: error.retrySafetyReason || 'Verify that payload schema matches requirements before retrying.',
+            suggestedCliCommand: error.suggestedCliCommand || `celigo errors:retry --flow-id="${error.flowId}" --error-ids="${error.id}"`,
             suggestedRemediationScript: error.suggestedRemediationScript || `// Celigo Hook\nfunction preSavePage(options) {\n  return options.data;\n}`,
             jiraTroubleshootingSteps: [
               'Verify customer and item IDs in source system',
               'Check tax registration and mapping table in integrator.io',
               'Run celigo-cli retry command'
             ],
-            mcpToolToExecute: 'celigo_retry_flow_errors',
+            mcpToolToExecute: 'celigo_retry_errors',
           });
         }
       } finally {

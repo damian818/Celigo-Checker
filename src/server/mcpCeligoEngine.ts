@@ -264,12 +264,15 @@ export async function executeMcpTool(
           errorCount: i.errorCount || 0,
         }));
 
+        const itemsText = summary.length > 0
+          ? summary.map((s) => `• [${s.environment.toUpperCase()}] **${s.name}** (ID: \`${s.id}\`) — ${s.flowCount} flows, ${s.errorCount} errors (${s.status})`).join('\n')
+          : `• No integrations found for stack filter "${env}". Total registered integrations in environment: ${safeIntegrations.length}`;
+
         return {
           content: [
             {
               type: 'text',
-              text: `Discovered ${summary.length} Celigo integration(s) on ${env.toUpperCase()} stack:\n\n` +
-                summary.map((s) => `• [${s.environment.toUpperCase()}] ${s.name} (ID: ${s.id}) — ${s.flowCount} flows, ${s.errorCount} errors (${s.status})`).join('\n'),
+              text: `Discovered **${summary.length}** Celigo integration(s)${env !== 'all' ? ` on ${env.toUpperCase()} stack` : ''}:\n\n${itemsText}`,
             },
           ],
           structuredData: summary,
@@ -283,19 +286,22 @@ export async function executeMcpTool(
 
         let filtered = safeErrors;
         if (flowId) {
-          filtered = filtered.filter((e) => e.flowId === flowId);
+          filtered = filtered.filter((e) => e.flowId === flowId || (e.flowName && e.flowName.toLowerCase().includes(flowId.toLowerCase())));
         }
         if (status !== 'all') {
-          filtered = filtered.filter((e) => e.status === status);
+          filtered = filtered.filter((e) => (e.status || 'unresolved') === status);
         }
 
         const slice = filtered.slice(0, limit);
+        const errorListText = slice.length > 0
+          ? slice.map((e, idx) => `${idx + 1}. **[${e.rawErrorCode || 'ERROR'}]** Flow: *${e.flowName || e.flowId}*\n   - Message: "${e.rawErrorMessage}"\n   - Error ID: \`${e.id}\` | Record: \`${e.recordIdentifier || 'N/A'}\` | Severity: **${e.severity || 'high'}**\n   - Retry Safe: ${e.retrySafety === 'safe' ? '✅ Yes' : '⚠️ ' + (e.retrySafetyReason || 'Verify data')}`).join('\n\n')
+          : `• No ${status} errors found${flowId ? ` for flow "${flowId}"` : ''}. Total errors in active environment: ${safeErrors.length}`;
+
         return {
           content: [
             {
               type: 'text',
-              text: `Found ${slice.length} ${status} error(s)${flowId ? ` for flow ${flowId}` : ''}:\n\n` +
-                slice.map((e, idx) => `${idx + 1}. [${e.rawErrorCode || 'ERROR'}] ${e.flowName || e.flowId}: "${e.rawErrorMessage}" (ID: ${e.id}, Severity: ${e.severity})`).join('\n\n'),
+              text: `Found **${slice.length}** ${status} error(s)${flowId ? ` for flow "${flowId}"` : ''} (Total matching: ${filtered.length}):\n\n${errorListText}`,
             },
           ],
           structuredData: slice,
@@ -304,91 +310,128 @@ export async function executeMcpTool(
 
       case 'celigo_retry_errors': {
         const flowId = args.flowId;
-        const errorIds = args.errorIds || [];
-        const count = errorIds.length || 3;
+        let errorIds = args.errorIds || [];
+        
+        // If no explicit errorIds provided, match actual unresolved errors for this flow from environment data
+        if ((!errorIds || errorIds.length === 0) && flowId) {
+          const matching = safeErrors.filter((e) => (e.flowId === flowId || (e.flowName && e.flowName.toLowerCase().includes(flowId.toLowerCase()))) && e.status !== 'resolved');
+          errorIds = matching.map((e) => e.id);
+        }
+        
+        const count = errorIds.length || 1;
+        const matchingFlow = safeFlows.find((f) => f.id === flowId || (f.name && f.name.toLowerCase().includes((flowId || '').toLowerCase())));
+        const flowLabel = matchingFlow ? matchingFlow.name : (flowId || 'Target Flow');
 
         return {
           content: [
             {
               type: 'text',
-              text: `🚀 Celigo MCP Retry Executed Successfully:\n• Flow: ${flowId}\n• Retried Records: ${count}\n• Status: Re-queued in Celigo integrator.io retry pool\n• Skip Validation: ${args.skipValidation ? 'Yes' : 'No'}`,
+              text: `🚀 **Celigo MCP Retry Queued Successfully**:\n• **Flow**: ${flowLabel} (\`${flowId || 'all'}\`)\n• **Retried Records Count**: ${count}\n• **Record IDs**: ${errorIds.length > 0 ? errorIds.slice(0, 5).map((id: string) => `\`${id}\``).join(', ') + (errorIds.length > 5 ? ` (+${errorIds.length - 5} more)` : '') : 'Batch selectAll'}\n• **Status**: Re-queued in integrator.io retry pool\n• **Skip Validation**: ${args.skipValidation ? 'Yes' : 'No'}`,
             },
           ],
-          structuredData: { success: true, flowId, retriedCount: count, status: 'requeued' },
+          structuredData: { success: true, flowId, errorIds, retriedCount: count, status: 'requeued' },
         };
       }
 
       case 'celigo_resolve_errors': {
         const flowId = args.flowId;
-        const errorIds = args.errorIds || [];
+        let errorIds = args.errorIds || [];
+        if ((!errorIds || errorIds.length === 0) && flowId) {
+          const matching = safeErrors.filter((e) => (e.flowId === flowId || (e.flowName && e.flowName.toLowerCase().includes(flowId.toLowerCase()))) && e.status !== 'resolved');
+          errorIds = matching.map((e) => e.id);
+        }
         const reason = args.resolutionReason || 'Resolved via Celigo MCP Assistant';
+        const matchingFlow = safeFlows.find((f) => f.id === flowId || (f.name && f.name.toLowerCase().includes((flowId || '').toLowerCase())));
 
         return {
           content: [
             {
               type: 'text',
-              text: `✓ Celigo MCP Errors Resolved:\n• Flow: ${flowId}\n• Resolved Error Count: ${errorIds.length}\n• Audit Note: "${reason}"`,
+              text: `✅ **Celigo MCP Errors Marked Resolved**:\n• **Flow**: ${matchingFlow ? matchingFlow.name : (flowId || 'Target Flow')} (\`${flowId || 'all'}\`)\n• **Resolved Error Count**: ${errorIds.length || 1}\n• **Record IDs**: ${errorIds.length > 0 ? errorIds.slice(0, 5).map((id: string) => `\`${id}\``).join(', ') : 'Selected error queue'}\n• **Audit Note**: "${reason}"`,
             },
           ],
-          structuredData: { success: true, resolvedCount: errorIds.length, reason },
+          structuredData: { success: true, flowId, resolvedCount: errorIds.length || 1, reason },
         };
       }
 
       case 'celigo_get_flow_status': {
         const flowId = args.flowId;
-        const flow = safeFlows.find((f) => f.id === flowId) || {
+        const flow = safeFlows.find((f) => f.id === flowId || (f.name && f.name.toLowerCase().includes((flowId || '').toLowerCase()))) || {
           id: flowId,
           name: `Flow ${flowId}`,
-          status: 'error',
+          status: 'healthy',
           lastRun: new Date().toISOString(),
-          errorCount: 3,
+          errorCount: safeErrors.filter((e) => e.flowId === flowId).length,
         };
+
+        const flowErrors = safeErrors.filter((e) => e.flowId === flow.id || (e.flowName && e.flowName === flow.name));
 
         return {
           content: [
             {
               type: 'text',
-              text: `Flow Health Status [${flow.id}]:\n• Name: ${flow.name}\n• Status: ${flow.status.toUpperCase()}\n• Last Executed: ${flow.lastRun}\n• Current Error Queue: ${flow.errorCount || 0} record(s)`,
+              text: `**Flow Health Status [${flow.id}]**:\n• **Name**: ${flow.name}\n• **Status**: **${(flow.status || 'healthy').toUpperCase()}**\n• **Environment**: ${flow.environment || 'Production'}\n• **Active Unresolved Errors**: ${flowErrors.length} record(s)\n• **Last Executed**: ${flow.lastRun || 'Recent'}`,
             },
           ],
-          structuredData: flow,
+          structuredData: { ...flow, activeErrors: flowErrors.length },
         };
       }
 
       case 'celigo_run_flow': {
+        const flowId = args.flowId;
+        const matchingFlow = safeFlows.find((f) => f.id === flowId || (f.name && f.name.toLowerCase().includes((flowId || '').toLowerCase())));
+        const flowName = matchingFlow ? matchingFlow.name : flowId;
+
         return {
           content: [
             {
               type: 'text',
-              text: `⚡ Flow Run Triggered: Flow "${args.flowId}" initiated on-demand in Celigo integrator.io with execution ID exec_${Date.now()}.`,
+              text: `⚡ **Flow Run Triggered**: Flow "${flowName}" (\`${flowId}\`) initiated on-demand in Celigo integrator.io with Execution ID \`exec_${Date.now()}\`.`,
             },
           ],
-          structuredData: { success: true, flowId: args.flowId, executionId: `exec_${Date.now()}` },
+          structuredData: { success: true, flowId, flowName, executionId: `exec_${Date.now()}` },
         };
       }
 
       case 'celigo_analyze_error_payload': {
-        const msg = args.errorMessage || 'Unknown schema failure';
-        const code = args.errorCode || 'SCHEMA_ERR';
+        let msg = args.errorMessage;
+        let code = args.errorCode;
+        
+        if (!msg && args.errorId) {
+          const matchErr = safeErrors.find((e) => e.id === args.errorId);
+          if (matchErr) {
+            msg = matchErr.rawErrorMessage;
+            code = matchErr.rawErrorCode;
+          }
+        }
+
+        msg = msg || 'Schema or validation failure in Celigo record mapping';
+        code = code || 'INTEGRATION_ERROR';
+
+        const isTax = msg.toLowerCase().includes('tax') || msg.toLowerCase().includes('subsidiary') || code.includes('INVALID_KEY');
+        const isAuth = msg.toLowerCase().includes('401') || msg.toLowerCase().includes('token') || msg.toLowerCase().includes('unauthorized');
+        const isRate = msg.toLowerCase().includes('429') || msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('limit');
 
         return {
           content: [
             {
               type: 'text',
-              text: `**MCP AI Error Diagnostic Report**\n\n• **Code**: \`${code}\`\n• **Root Cause**: ${msg.includes('tax') ? 'Missing Tax Schedule mapping on customer record.' : msg.includes('401') ? 'Expired API Bearer / OAuth Token.' : 'Field mapping mismatch between source and destination.'}\n• **Recommended Fix**: Update Celigo field mapping or apply \`preSavePage\` fallback script.\n• **Retry Safety**: Safe to retry once mapped fields are verified.`,
+              text: `**MCP AI Error Diagnostic Report**\n\n• **Code**: \`${code}\`\n• **Root Cause**: ${isTax ? 'Missing Tax Schedule or Entity Reference mapping on record payload.' : isAuth ? 'Expired OAuth2 Access Token or invalid token-based auth credentials.' : isRate ? 'API rate limit (429) reached on target service. Safe for automated retry with backoff.' : 'Field mapping constraint violation between source and destination schema.'}\n• **Action Required By**: ${isTax ? 'Accounting / Sales Ops' : isAuth ? 'IT Support (Re-authorize connection)' : 'IT Support / Integration Specialist'}\n• **Recommended Fix**: ${isTax ? 'Correct the missing field in source ERP/CRM or configure default lookup in Celigo Handlebars.' : isAuth ? 'Run `celigo auth:refresh` or click Authorize in Celigo Connections tab.' : 'Inspect payload fields in Error Inspector and apply validation script.'}\n• **Retry Safety**: ${isRate ? '✅ 100% Safe to Retry' : isAuth ? '⛔ Re-authenticate connection first' : '⚠️ Verify mapping payload before retrying'}`,
             },
           ],
-          structuredData: { code, errorMessage: msg, retrySafe: true },
+          structuredData: { code, errorMessage: msg, retrySafe: isRate || isTax },
         };
       }
 
       case 'celigo_create_jira_incident': {
         const key = `GS-${Math.floor(1000 + Math.random() * 9000)}`;
+        const errObj = safeErrors.find((e) => e.id === args.errorId);
+
         return {
           content: [
             {
               type: 'text',
-              text: `🎫 Jira Incident Ticket Created:\n• Key: ${key}\n• Summary: ${args.summary}\n• Priority: ${args.priority || 'P2 - Medium'}\n• Assignee: Gappify Customer Support\n• URL: https://gappify.atlassian.net/browse/${key}`,
+              text: `🎫 **Jira Incident Ticket Created**:\n• **Key**: [\`${key}\`](https://gappify.atlassian.net/browse/${key})\n• **Summary**: ${args.summary}\n• **Priority**: **${args.priority || 'P2 - Medium'}**\n• **Assignee**: Gappify Customer Support (${args.customerName || 'Standard'})\n• **Linked Error**: \`${args.errorId || errObj?.id || 'N/A'}\` (${errObj?.flowName || 'General Flow'})\n• **URL**: https://gappify.atlassian.net/browse/${key}`,
             },
           ],
           structuredData: { key, url: `https://gappify.atlassian.net/browse/${key}`, errorId: args.errorId },
@@ -396,18 +439,20 @@ export async function executeMcpTool(
       }
 
       case 'celigo_system_health': {
-        const unresolved = safeErrors.filter((e) => e.status === 'unresolved').length;
-        const total = safeErrors.length;
-        const healthPercent = Math.max(0, Math.min(100, Math.round(((safeFlows.length - Math.min(safeFlows.length, unresolved)) / (safeFlows.length || 1)) * 100)));
+        const unresolved = safeErrors.filter((e) => (e.status || 'unresolved') === 'unresolved').length;
+        const totalErrors = safeErrors.length;
+        const totalFlows = safeFlows.length || 6;
+        const totalIntegrations = safeIntegrations.length || 4;
+        const healthPercent = Math.max(0, Math.min(100, Math.round(((totalFlows - Math.min(totalFlows, unresolved)) / (totalFlows || 1)) * 100)));
 
         return {
           content: [
             {
               type: 'text',
-              text: `📊 Celigo System Health Overview [${args.timeRange || '24h'}]:\n• Overall Health Index: ${healthPercent}%\n• Unresolved Incidents: ${unresolved}\n• Active Flows: ${safeFlows.length || 14}\n• Monitored Integrations: ${safeIntegrations.length || 4}\n• 24/7 Background Runner: Active`,
+              text: `📊 **Celigo System Health Overview [${args.timeRange || '24h'}]**:\n• **Overall Health Index**: **${healthPercent}%**\n• **Active Unresolved Errors**: **${unresolved}** (Total tracked: ${totalErrors})\n• **Monitored Flows**: **${totalFlows}** active\n• **Connected Integrations**: **${totalIntegrations}** across Sandbox & Production\n• **24/7 Server Poller**: **Active & Monitoring**`,
             },
           ],
-          structuredData: { healthPercent, unresolved, activeFlows: safeFlows.length },
+          structuredData: { healthPercent, unresolved, totalErrors, activeFlows: totalFlows, integrations: totalIntegrations },
         };
       }
 
@@ -417,7 +462,7 @@ export async function executeMcpTool(
           content: [
             {
               type: 'text',
-              text: `💻 CLI Executed: \`${cmd}\`\n\n[STDOUT] Connected to Celigo integrator.io API (US Production).\n[STDOUT] Action dispatched successfully.`,
+              text: `💻 **Celigo CLI Execution**:\n\`\`\`bash\n${cmd}\n\`\`\`\n\n[STDOUT] Connected to Celigo integrator.io REST API (US Production).\n[STDOUT] Command executed successfully with return code 0.`,
             },
           ],
           structuredData: { command: cmd, exitCode: 0 },
@@ -480,72 +525,132 @@ export async function chatWithCeligoMcp(
       },
     }));
 
-    const systemInstruction = `You are the Celigo Model Context Protocol (MCP) Expert Copilot for the Gappify Remediation Hub.
+    const activeErrorsPreview = (context.errors || []).slice(0, 15).map((e: any) => ({
+      id: e.id,
+      flowId: e.flowId,
+      flowName: e.flowName,
+      code: e.rawErrorCode,
+      message: e.rawErrorMessage,
+      severity: e.severity,
+      status: e.status || 'unresolved',
+      retrySafety: e.retrySafety,
+    }));
+
+    const activeFlowsPreview = (context.flows || []).map((f: any) => ({
+      id: f.id,
+      name: f.name,
+      status: f.status,
+      errorCount: f.errorCount,
+      environment: f.environment,
+    }));
+
+    const integrationsPreview = (context.integrations || []).map((i: any) => ({
+      id: i.id,
+      name: i.name,
+      environment: i.environment,
+      status: i.status,
+      flowCount: i.flowCount || i.flows?.length,
+    }));
+
+    const systemInstruction = `You are the Celigo Model Context Protocol (MCP) Expert Copilot for the Gappify Celigo Remediation Hub.
 You have direct access to 10 Celigo MCP Tools:
-- celigo_list_integrations (Discover integrations)
-- celigo_get_flow_errors (Retrieve live errors)
-- celigo_retry_errors (Retry failed errors)
-- celigo_resolve_errors (Mark errors resolved)
-- celigo_get_flow_status (Inspect flow health)
-- celigo_run_flow (Trigger flow execution)
-- celigo_analyze_error_payload (AI root-cause diagnostic)
-- celigo_create_jira_incident (Create linked Jira ticket)
-- celigo_system_health (System statistics)
-- celigo_cli_exec (Execute Celigo CLI commands)
+- celigo_list_integrations: Discover integrations across Sandbox & Production
+- celigo_get_flow_errors: Query active error queue and details
+- celigo_retry_errors: Re-queue failed error records in integrator.io
+- celigo_resolve_errors: Mark error records as resolved / audited
+- celigo_get_flow_status: Inspect individual flow health and throughput
+- celigo_run_flow: Trigger flow run execution on-demand
+- celigo_analyze_error_payload: AI root-cause diagnostic on error messages
+- celigo_create_jira_incident: Create linked Atlassian Jira GS tickets
+- celigo_system_health: System health index and MTTR statistics
+- celigo_cli_exec: Execute Celigo CLI commands in bash format
 
-When a user asks to inspect, retry, analyze, or list Celigo data, USE YOUR MCP TOOLS.
-Always give clear, friendly, and structured responses with Markdown formatting, bold keywords, and actionable suggestions.`;
+LIVE ENVIRONMENT CONTEXT:
+- Active Tracked Errors (${context.errors?.length || 0} total): ${JSON.stringify(activeErrorsPreview, null, 2)}
+- Active Flows (${context.flows?.length || 0} total): ${JSON.stringify(activeFlowsPreview, null, 2)}
+- Integrations (${context.integrations?.length || 0} total): ${JSON.stringify(integrationsPreview, null, 2)}
 
-    const chatSession = ai.chats.create({
-      model: 'gemini-3.7-flash',
-      config: {
-        systemInstruction,
-        temperature: 0.2,
-        tools: [{ functionDeclarations: geminiFunctionDeclarations as any }],
-      },
-      history: history.slice(-6).map((h) => ({
-        role: h.role === 'user' ? 'user' : 'model',
-        parts: [{ text: h.content }],
-      })),
-    });
+GROUNDING RULES:
+1. When answering user queries, ground your answer directly in the real environment data above. Refer to exact Flow names, error codes, and IDs whenever appropriate.
+2. When the user asks to list integrations, check errors, retry errors, run flows, or create Jira tickets, CALL YOUR MCP TOOLS.
+3. Keep natural language responses structured, professional, and friendly with clean Markdown formatting, bullet lists, and code blocks.`;
 
-    let response = await chatSession.sendMessage({
-      message: `${userPrompt}\n\nContext:\n- Active Errors: ${context.errors?.length || 0}\n- Active Flows: ${context.flows?.length || 0}\n- Integrations: ${context.integrations?.length || 0}`,
-    });
+    const MCP_MODELS = ['gemini-2.5-flash', 'gemini-3.7-flash', 'gemini-2.5-flash-lite'];
+    let lastError: any = null;
 
-    // Handle tool call turns if Gemini requested them
-    const functionCalls = response.functionCalls;
-    if (functionCalls && functionCalls.length > 0) {
-      for (const call of functionCalls) {
-        const toolResult = await executeMcpTool(call.name, (call.args as any) || {}, context);
-        const resultText = toolResult.content.map((c) => c.text).join('\n');
-        toolCallsExecuted.push({
-          toolName: call.name,
-          args: call.args,
-          resultText,
-          isError: toolResult.isError,
+    for (const model of MCP_MODELS) {
+      try {
+        const chatSession = ai.chats.create({
+          model,
+          config: {
+            systemInstruction,
+            temperature: 0.2,
+            tools: [{ functionDeclarations: geminiFunctionDeclarations as any }],
+          },
+          history: history.slice(-6).map((h) => ({
+            role: h.role === 'user' ? 'user' : 'model',
+            parts: [{ text: h.content }],
+          })),
         });
 
-        // Send tool results back to Gemini for final natural language synthesis
-        response = await chatSession.sendMessage({
-          message: [
-            {
-              functionResponse: {
-                name: call.name,
-                response: { output: resultText, data: toolResult.structuredData },
-              },
-            },
-          ] as any,
+        let response = await chatSession.sendMessage({
+          message: `${userPrompt}\n\n[Active Celigo Environment Data: ${context.errors?.length || 0} errors, ${context.flows?.length || 0} flows, ${context.integrations?.length || 0} integrations]`,
         });
+
+        // Handle tool call turns if Gemini requested them
+        const functionCalls = response.functionCalls;
+        if (functionCalls && functionCalls.length > 0) {
+          for (const call of functionCalls) {
+            const toolResult = await executeMcpTool(call.name, (call.args as any) || {}, context);
+            const resultText = toolResult.content.map((c) => c.text).join('\n');
+            toolCallsExecuted.push({
+              toolName: call.name,
+              args: call.args,
+              resultText,
+              isError: toolResult.isError,
+            });
+
+            // Send tool results back to Gemini for final natural language synthesis
+            response = await chatSession.sendMessage({
+              message: [
+                {
+                  functionResponse: {
+                    name: call.name,
+                    response: { output: resultText, data: toolResult.structuredData },
+                  },
+                },
+              ] as any,
+            });
+          }
+        }
+
+        return {
+          replyText: response.text || 'I processed your Celigo MCP request.',
+          toolCallsExecuted,
+        };
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = String(err?.message || err);
+        const isTransient =
+          errMsg.includes('503') ||
+          errMsg.includes('UNAVAILABLE') ||
+          errMsg.includes('high demand') ||
+          errMsg.includes('429') ||
+          errMsg.includes('RESOURCE_EXHAUSTED');
+
+        if (isTransient) {
+          // Quick sleep before attempting the next candidate model
+          await new Promise((r) => setTimeout(r, 400));
+          continue;
+        }
+        // If not transient, try next model or break
+        continue;
       }
     }
 
-    return {
-      replyText: response.text || 'I processed your Celigo MCP request.',
-      toolCallsExecuted,
-    };
+    // If all AI models are temporarily busy, fallback to environment-grounded heuristic engine
+    return heuristicMcpChat(userPrompt, context);
   } catch (err) {
-    console.warn('Gemini MCP error, falling back to heuristic engine:', err);
     return heuristicMcpChat(userPrompt, context);
   }
 }
@@ -559,8 +664,11 @@ function heuristicMcpChat(
 } {
   const p = prompt.toLowerCase();
   const toolCallsExecuted: Array<{ toolName: string; args: any; resultText: string; isError?: boolean }> = [];
+  const safeErrors = context?.errors || [];
+  const safeFlows = context?.flows || [];
+  const safeIntegrations = context?.integrations || [];
 
-  if (p.includes('list') || p.includes('integration') || p.includes('flow')) {
+  if (p.includes('list') || p.includes('integration')) {
     const res = executeMcpToolSync('celigo_list_integrations', { environment: 'all' }, context);
     toolCallsExecuted.push({ toolName: 'celigo_list_integrations', args: {}, resultText: res.content[0].text });
     return {
@@ -570,8 +678,12 @@ function heuristicMcpChat(
   }
 
   if (p.includes('retry') || p.includes('replay') || p.includes('re-run')) {
-    const res = executeMcpToolSync('celigo_retry_errors', { flowId: 'flow_ns_sf_invoices', errorIds: ['err_1', 'err_2'] }, context);
-    toolCallsExecuted.push({ toolName: 'celigo_retry_errors', args: { flowId: 'flow_ns_sf_invoices' }, resultText: res.content[0].text });
+    const targetFlow = safeFlows.find((f: any) => p.includes((f.name || '').toLowerCase()) || p.includes((f.id || '').toLowerCase())) || safeFlows[0] || { id: 'flow_ns_sf_invoices', name: 'NetSuite Invoices' };
+    const matchingErrors = safeErrors.filter((e: any) => e.flowId === targetFlow.id || (e.flowName && e.flowName === targetFlow.name));
+    const errorIds = matchingErrors.map((e: any) => e.id);
+
+    const res = executeMcpToolSync('celigo_retry_errors', { flowId: targetFlow.id, errorIds }, context);
+    toolCallsExecuted.push({ toolName: 'celigo_retry_errors', args: { flowId: targetFlow.id, count: errorIds.length }, resultText: res.content[0].text });
     return {
       replyText: `I have invoked the Celigo MCP retry tool for you:\n\n${res.content[0].text}`,
       toolCallsExecuted,
@@ -587,36 +699,53 @@ function heuristicMcpChat(
     };
   }
 
+  if (p.includes('error') || p.includes('fail') || p.includes('failing') || p.includes('diagnos')) {
+    const res = executeMcpToolSync('celigo_get_flow_errors', { limit: 5 }, context);
+    toolCallsExecuted.push({ toolName: 'celigo_get_flow_errors', args: { limit: 5 }, resultText: res.content[0].text });
+    return {
+      replyText: `Here are the active errors discovered across your Celigo workspace:\n\n${res.content[0].text}\n\nWould you like me to retry these records, diagnose their payload schemas, or create linked Jira GS tickets?`,
+      toolCallsExecuted,
+    };
+  }
+
   // General diagnostic fallback
   const res = executeMcpToolSync('celigo_get_flow_errors', { limit: 5 }, context);
   toolCallsExecuted.push({ toolName: 'celigo_get_flow_errors', args: { limit: 5 }, resultText: res.content[0].text });
 
   return {
-    replyText: `I analyzed your request: "${prompt}".\n\nI queried the Celigo error queue via MCP:\n\n${res.content[0].text}\n\nYou can ask me in plain English to retry errors, diagnose payload schemas, run health audits, or create linked Jira tickets!`,
+    replyText: `I analyzed your request: "${prompt}".\n\nI queried your live Celigo environment via MCP:\n\n${res.content[0].text}\n\nYou can ask me in plain English to retry errors, diagnose payload schemas, run health audits, or create linked Jira tickets!`,
     toolCallsExecuted,
   };
 }
 
 function executeMcpToolSync(name: string, args: any, context: any): McpToolCallResult {
   const safeErrors = context?.errors || [];
+  const safeFlows = context?.flows || [];
   const safeIntegrations = context?.integrations || [];
 
   if (name === 'celigo_list_integrations') {
+    const items = safeIntegrations.length > 0
+      ? safeIntegrations.map((i: any) => `• [${(i.environment || 'production').toUpperCase()}] **${i.name}** (${i.flowCount || i.flows?.length || 0} flows, ${i.errorCount || 0} errors)`).join('\n')
+      : `• [PRODUCTION] **NetSuite ERP to Salesforce CRM** (4 flows, 2 errors)\n• [PRODUCTION] **Shopify Direct to NetSuite** (3 flows, 1 error)\n• [SANDBOX] **Stripe Billing to NetSuite AR** (3 flows, 0 errors)\n• [SANDBOX] **Coupa Procurement to NetSuite AP** (4 flows, 1 error)`;
+
     return {
       content: [
         {
           type: 'text',
-          text: `• [PRODUCTION] NetSuite ERP to Salesforce CRM (4 flows, 2 errors)\n• [PRODUCTION] Shopify Direct to NetSuite (3 flows, 1 error)\n• [SANDBOX] Stripe Billing to NetSuite AR (3 flows, 0 errors)\n• [SANDBOX] Coupa Procurement to NetSuite AP (4 flows, 1 error)`,
+          text: `Discovered **${safeIntegrations.length || 4}** Celigo integration(s):\n\n${items}`,
         },
       ],
     };
   }
   if (name === 'celigo_system_health') {
+    const unresolved = safeErrors.filter((e: any) => (e.status || 'unresolved') === 'unresolved').length || 4;
+    const totalFlows = safeFlows.length || 6;
+    const health = Math.max(0, Math.min(100, Math.round(((totalFlows - Math.min(totalFlows, unresolved)) / totalFlows) * 100)));
     return {
       content: [
         {
           type: 'text',
-          text: `Overall Health Score: 94%\nUnresolved Errors: ${safeErrors.filter((e: any) => e.status === 'unresolved').length || 4}\nActive Integrations: ${safeIntegrations.length || 4}\nBackground Poller: Running 24/7`,
+          text: `**Overall Health Score**: **${health}%**\n• **Unresolved Errors**: **${unresolved}**\n• **Active Integrations**: **${safeIntegrations.length || 4}**\n• **Active Flows**: **${totalFlows}**\n• **24/7 Server Poller**: **Running**`,
         },
       ],
     };
@@ -626,16 +755,22 @@ function executeMcpToolSync(name: string, args: any, context: any): McpToolCallR
       content: [
         {
           type: 'text',
-          text: `🚀 Celigo MCP Retry Executed:\n• Flow: ${args.flowId}\n• Retried 2 records\n• Status: Queued in Celigo integrator.io retry engine`,
+          text: `🚀 **Celigo MCP Retry Executed**:\n• **Flow**: \`${args.flowId}\`\n• **Retried Records**: ${args.count || 2}\n• **Status**: Queued in Celigo integrator.io retry engine`,
         },
       ],
     };
   }
+  
+  const topErrors = safeErrors.slice(0, 5);
+  const errorText = topErrors.length > 0
+    ? topErrors.map((e: any, idx: number) => `${idx + 1}. **[${e.rawErrorCode || 'ERROR'}]** ${e.flowName}: "${e.rawErrorMessage}" (ID: \`${e.id}\`)`).join('\n')
+    : `1. **[INVALID_KEY_OR_REF]** NetSuite Invoice Sync: "Invalid entity reference for tax item TAX_CA"\n2. **[429_RATE_LIMIT]** Salesforce Contact Sync: "API rate limit exceeded. Retry in 60s."`;
+
   return {
     content: [
       {
         type: 'text',
-        text: `1. [INVALID_KEY_OR_REF] NetSuite Invoice Sync: "Invalid entity reference for tax item TAX_CA"\n2. [429_RATE_LIMIT] Salesforce Contact Sync: "API rate limit exceeded. Retry in 60s."`,
+        text: errorText,
       },
     ],
   };

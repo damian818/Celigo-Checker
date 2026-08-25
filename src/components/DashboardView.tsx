@@ -34,6 +34,7 @@ import {
   FileText
 } from 'lucide-react';
 import { CeligoErrorRecord, CeligoFlow, CeligoIntegration } from '../types/celigo';
+import { HeaderTab } from './Header';
 import { ErrorSummaryModal, ErrorSummaryScope } from './ErrorSummaryModal';
 import { buildCeligoFlowUrl } from '../utils/celigoUrl';
 import { identifyFlowType, getFlowTypeBadgeStyle } from '../utils/errorSummaryFormatter';
@@ -47,7 +48,7 @@ interface DashboardViewProps {
   onOpenJiraModal: (error: CeligoErrorRecord) => void;
   onOpenRemediationModal: (error: CeligoErrorRecord) => void;
   onOpenNotificationModal: (error: CeligoErrorRecord) => void;
-  onSwitchTab: (tab: 'dashboard' | 'errors' | 'chat' | 'cli') => void;
+  onSwitchTab: (tab: HeaderTab) => void;
   onQuickRetry: (errorId: string) => void;
   onQuickResolve?: (errorId: string, purge?: boolean) => void;
   onBatchRetry?: (errorIds: string[], flowId?: string) => void;

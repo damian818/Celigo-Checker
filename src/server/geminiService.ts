@@ -25,8 +25,8 @@ function getGeminiClient(): GoogleGenAI | null {
   }
 }
 
-// Candidate models in preference order
-const TEXT_MODELS = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+// Candidate models in preference order with high-throughput and flash variants
+const TEXT_MODELS = ['gemini-2.5-flash', 'gemini-3.7-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));

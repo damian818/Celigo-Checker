@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   Terminal, 
   Send, 
@@ -293,7 +295,41 @@ export const McpConsoleView: React.FC<McpConsoleViewProps> = ({
                         : 'bg-slate-950/80 text-slate-200 border border-slate-800/80 shadow-2xs rounded-bl-none'
                     }`}
                   >
-                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                    {msg.role === 'user' ? (
+                      <div className="whitespace-pre-wrap font-sans">{msg.text}</div>
+                    ) : (
+                      <div className="space-y-2 prose prose-invert prose-xs max-w-none text-slate-200">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                            strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+                            em: ({ children }) => <em className="text-slate-300 italic">{children}</em>,
+                            ul: ({ children }) => <ul className="list-disc list-inside space-y-1 my-2 ml-1 text-slate-300">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 my-2 ml-1 text-slate-300">{children}</ol>,
+                            li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                            code: ({ inline, className, children, ...props }: any) => {
+                              return inline ? (
+                                <code className="bg-slate-800 text-indigo-300 px-1.5 py-0.5 rounded font-mono text-[11px] border border-slate-700" {...props}>
+                                  {children}
+                                </code>
+                              ) : (
+                                <pre className="bg-slate-900 border border-slate-800 text-emerald-400 p-3 rounded-xl font-mono text-[11px] my-2 overflow-x-auto whitespace-pre-wrap">
+                                  <code {...props}>{children}</code>
+                                </pre>
+                              );
+                            },
+                            a: ({ href, children }) => (
+                              <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 underline font-medium inline-flex items-center gap-0.5">
+                                {children}
+                              </a>
+                            ),
+                          }}
+                        >
+                          {msg.text}
+                        </ReactMarkdown>
+                      </div>
+                    )}
 
                     {/* Tool Execution Badges */}
                     {msg.toolCallsExecuted && msg.toolCallsExecuted.length > 0 && (
