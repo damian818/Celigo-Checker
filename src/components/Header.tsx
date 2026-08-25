@@ -55,6 +55,8 @@ interface HeaderProps {
   onToggleNotifyOnError?: () => void;
   onToggleSoundEnabled?: () => void;
   onChangeAutoSyncInterval?: (minutes: number) => void;
+  onEnablePushNotifications?: () => void;
+  onTestPushNotification?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -88,7 +90,9 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleNotifyOnHealthySync,
   onToggleNotifyOnError,
   onToggleSoundEnabled,
-  onChangeAutoSyncInterval
+  onChangeAutoSyncInterval,
+  onEnablePushNotifications,
+  onTestPushNotification
 }) => {
   const [showSyncIntervalMenu, setShowSyncIntervalMenu] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
@@ -292,11 +296,46 @@ export const Header: React.FC<HeaderProps> = ({
                     }}
                     className="w-full py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium border border-slate-700 flex items-center justify-center gap-1 transition cursor-pointer"
                   >
-                    🔔 Test Alert & Chime
+                    🔔 Test Local Alert & Chime
                   </button>
+
+                  {/* Web Push Mobile/Desktop 24/7 Background Alert Controls */}
+                  <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                    <div className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      24/7 Mobile/Desktop Background
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onEnablePushNotifications?.();
+                      }}
+                      className="w-full py-1.5 px-2 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 text-[11px] font-medium border border-emerald-800/60 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      📱 Enable Background Mobile/Desktop Push
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onTestPushNotification?.();
+                      }}
+                      className="w-full py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-200 text-[11px] font-medium border border-slate-700 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      🚀 Test Background OS Push Alert
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
+          </div>
+
+          {/* 24/7 Background Sync Server Status Indicator */}
+          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-medium" title="Server-side 24/7 background sync runner is active in Cloud container even when app is switched or phone locked.">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span>24/7 Background Sync: <strong className="text-emerald-200">Active</strong></span>
           </div>
 
           {/* Auto-Sync Timer Badge & Interval Selector */}

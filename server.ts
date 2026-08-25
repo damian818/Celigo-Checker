@@ -3,6 +3,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { apiRouter } from './src/server/apiHandler.js';
+import { backgroundSyncEngine } from './src/server/backgroundSyncEngine.js';
 
 dotenv.config();
 
@@ -16,6 +17,9 @@ async function startServer() {
 
   // Mount API routes FIRST
   app.use('/api', apiRouter);
+
+  // Start 24/7 background sync & push engine
+  backgroundSyncEngine.start();
 
   // Vite middleware for development vs static serve for production
   if (process.env.NODE_ENV !== 'production') {

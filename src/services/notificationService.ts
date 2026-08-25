@@ -197,5 +197,89 @@ export class NotificationService {
       // Audio context might be restricted without user interaction
     }
   }
+
+  /**
+   * Helper to convert VAPID base64 string to Uint8Array for PushManager
+   */
+  private static urlBase64ToUint8Array(base64String: string): Uint8Array {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  /**
+   * Register Web Push Subscription for 24/7 background alerts on Android/Desktop
+   */
+  public static async subscribeToPushNotifications(): Promise<{ success: boolean; message: string }> {
+    try {
+      const permission = await this.requestPermission();
+      if (permission !== 'granted') {
+        return { success: false, message: 'Notification permission denied by browser.' };
+      }
+
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        return { success: false, message: 'Web Push is not supported in this browser environment.' };
+      }
+
+      const reg = await navigator.serviceWorker.ready;
+      
+      // Get VAPID public key from backend
+      const vapidRes = await fetch('/api/push/vapid-key');
+      if (!vapidRes.ok) {
+        throw new Error('Failed to retrieve server VAPID key');
+      }
+      const { publicKey } = await vapidRes.json();
+
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub && publicKey) {
+        const applicationServerKey = this.urlBase64ToUint8Array(publicKey);
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey
+        });
+      }
+
+      if (!sub) {
+        return { success: false, message: 'Could not establish PushSubscription with push manager.' };
+      }
+
+      // Send subscription object to server
+      const saveRes = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub }),
+      });
+
+      if (!saveRes.ok) {
+        throw new Error('Failed to save push subscription on server');
+      }
+
+      return { success: true, message: '✓ Device registered for 24/7 background mobile & desktop push alerts!' };
+    } catch (err: any) {
+      console.error('Failed to subscribe to Web Push:', err);
+      return { success: false, message: err.message || 'Push subscription failed' };
+    }
+  }
+
+  /**
+   * Dispatch test 24/7 background push notification from server
+   */
+  public static async sendTestPushNotification(): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await fetch('/api/push/test', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        return { success: true, message: `🚀 Test push notification sent to ${data.sentTo} registered device(s)!` };
+      }
+      return { success: false, message: data.errors?.[0] || 'No push devices registered yet.' };
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Failed to dispatch test push' };
+    }
+  }
 }
 

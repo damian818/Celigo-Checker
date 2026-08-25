@@ -37,7 +37,7 @@ import { buildCeligoFlowUrl } from './utils/celigoUrl';
 import { auth, googleProvider, isAllowedEmail, ALLOWED_DOMAIN, testFirestoreConnection } from './services/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
 import { subscribeToUserSettings, saveUserSettings } from './services/userSettingsService';
-import { saveTokens } from './services/tokenStorage';
+import { saveTokens, getStoredTokens } from './services/tokenStorage';
 import {
   identifyFlowType,
   getCompanyNameOrIntegration,
@@ -166,6 +166,25 @@ export default function App() {
       showToast('🔔 Desktop notification & chime sent successfully!', 'success');
     } else {
       showToast('Please enable notifications in your browser to receive desktop alerts.', 'info');
+    }
+  };
+
+  const handleEnablePushNotifications = async () => {
+    const res = await NotificationService.subscribeToPushNotifications();
+    if (res.success) {
+      setNotificationsEnabled(true);
+      showToast(res.message, 'success');
+    } else {
+      showToast(`Push Notice: ${res.message}`, 'info');
+    }
+  };
+
+  const handleTestPushNotification = async () => {
+    const res = await NotificationService.sendTestPushNotification();
+    if (res.success) {
+      showToast(res.message, 'success');
+    } else {
+      showToast(res.message, 'info');
     }
   };
 
@@ -395,6 +414,20 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
+    // Sync server-side background engine config with active settings
+    const tokens = getStoredTokens();
+    fetch('/api/background-sync/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        autoSyncIntervalMinutes,
+        enabled: true,
+        prodToken: tokens.prodToken,
+        sandboxToken: tokens.sandboxToken,
+        celigoStack: tokens.celigoStack || 'us'
+      })
+    }).catch(err => console.warn('Background sync engine notice:', err));
+
     const checkAndSync = () => {
       if (isSyncingRef.current) return;
       const storedLastSync = Number(localStorage.getItem('celigo_last_sync_timestamp') || 0);
@@ -414,28 +447,46 @@ export default function App() {
     // Run check immediately on mount or tab focus
     checkAndSync();
 
-    const intervalTimer = setInterval(() => {
-      if (isSyncingRef.current) return;
-      const storedLastSync = Number(localStorage.getItem('celigo_last_sync_timestamp') || 0);
-      const intervalMs = autoSyncIntervalMinutes * 60 * 1000;
-      const now = Date.now();
+    // Spawn off-thread Web Worker for unthrottled timer execution
+    let worker: Worker | null = null;
+    try {
+      worker = new Worker('/timerWorker.js');
+      worker.postMessage({ command: 'start', intervalMs: 1000 });
+      worker.onmessage = (e) => {
+        if (e.data?.type === 'tick') {
+          checkAndSync();
+        }
+      };
+    } catch (wErr) {
+      console.warn('Dedicated Worker fallback to window timer:', wErr);
+    }
 
-      if (!storedLastSync || (now - storedLastSync) >= intervalMs) {
-        checkAndSync();
-      } else {
-        const remainingMs = Math.max(0, intervalMs - (now - storedLastSync));
-        setNextSyncSecondsRemaining(Math.ceil(remainingMs / 1000));
-      }
+    const intervalTimer = setInterval(() => {
+      checkAndSync();
     }, 1000);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !isSyncingRef.current) {
+      if (document.visibilityState === 'visible') {
         checkAndSync();
+        // Query server background sync status to catch up on any syncs performed on server while client was backgrounded
+        fetch('/api/background-sync/status')
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.lastSyncTimestamp && data.lastSyncTimestamp > Number(localStorage.getItem('celigo_last_sync_timestamp') || 0)) {
+              localStorage.setItem('celigo_last_sync_timestamp', String(data.lastSyncTimestamp));
+              checkAndSync();
+            }
+          })
+          .catch(() => {});
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      if (worker) {
+        worker.postMessage({ command: 'stop' });
+        worker.terminate();
+      }
       clearInterval(intervalTimer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -445,10 +496,25 @@ export default function App() {
     setAutoSyncIntervalMinutes(minutes);
     localStorage.setItem('celigo_auto_sync_interval', String(minutes));
     setNextSyncSecondsRemaining(minutes * 60);
+
+    // Update server background sync runner
+    const tokens = getStoredTokens();
+    fetch('/api/background-sync/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        autoSyncIntervalMinutes: minutes,
+        enabled: true,
+        prodToken: tokens.prodToken,
+        sandboxToken: tokens.sandboxToken,
+        celigoStack: tokens.celigoStack || 'us'
+      })
+    }).catch(console.warn);
+
     if (user?.uid) {
       saveUserSettings(user.uid, { autoSyncIntervalMinutes: minutes }).catch(console.error);
     }
-    showToast(`Auto-sync frequency updated to every ${minutes} minutes.`, 'info');
+    showToast(`24/7 Background sync frequency updated to every ${minutes} minutes.`, 'info');
   };
 
   const formatCountdown = (secs: number) => {
@@ -1015,6 +1081,8 @@ export default function App() {
         onToggleNotifyOnError={handleToggleNotifyOnError}
         onToggleSoundEnabled={handleToggleSoundEnabled}
         onChangeAutoSyncInterval={handleChangeAutoSyncInterval}
+        onEnablePushNotifications={handleEnablePushNotifications}
+        onTestPushNotification={handleTestPushNotification}
       />
 
       {/* Main Container */}

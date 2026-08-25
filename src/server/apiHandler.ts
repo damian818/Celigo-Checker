@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { analyzeCeligoErrorWithGemini, chatWithCeligoCopilot } from './geminiService.js';
+import { backgroundSyncEngine } from './backgroundSyncEngine.js';
 
 export const apiRouter = express.Router();
 
@@ -942,6 +943,15 @@ export function getCeligoTargets(req?: Request): CeligoEnvTarget[] {
       stack: defaultStack,
       host: defaultHost,
     });
+  }
+
+  // Pass active tokens to server background sync engine
+  if (prodHeader || sandboxHeader) {
+    backgroundSyncEngine.updateTokens(
+      prodHeader || undefined,
+      sandboxHeader || undefined,
+      reqStack === 'eu' ? 'eu' : 'us'
+    );
   }
 
   return targets;
@@ -2292,3 +2302,71 @@ apiRouter.post('/celigo/errors/check-actionable', async (req: Request, res: Resp
     return res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// ============================================================================
+// 24/7 BACKGROUND SYNC & WEB PUSH NOTIFICATIONS API ENDPOINTS
+// ============================================================================
+
+// 1. Get VAPID Public Key for Web Push Subscriptions
+apiRouter.get('/push/vapid-key', (req: Request, res: Response) => {
+  return res.json({ publicKey: backgroundSyncEngine.getVapidPublicKey() });
+});
+
+// 2. Register Client Push Subscription
+apiRouter.post('/push/subscribe', (req: Request, res: Response) => {
+  try {
+    const subscription = req.body.subscription;
+    if (!subscription || !subscription.endpoint || !subscription.keys) {
+      return res.status(400).json({ success: false, error: 'Invalid PushSubscription payload' });
+    }
+    backgroundSyncEngine.addPushSubscription({
+      endpoint: subscription.endpoint,
+      keys: subscription.keys,
+      userAgent: req.headers['user-agent'],
+      registeredAt: new Date().toISOString(),
+    });
+    return res.json({ success: true, message: 'Push subscription registered for 24/7 background mobile/desktop alerts.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. Dispatch Test Background Push Notification
+apiRouter.post('/push/test', async (req: Request, res: Response) => {
+  try {
+    const result = await backgroundSyncEngine.sendTestPush();
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. Get 24/7 Server Background Sync Engine Status & Health
+apiRouter.get('/background-sync/status', (req: Request, res: Response) => {
+  return res.json(backgroundSyncEngine.getStatus());
+});
+
+// 5. Update Server Background Sync Config
+apiRouter.post('/background-sync/config', (req: Request, res: Response) => {
+  try {
+    const { autoSyncIntervalMinutes, enabled, prodToken, sandboxToken, celigoStack } = req.body;
+    backgroundSyncEngine.setConfig(autoSyncIntervalMinutes, enabled);
+    if (prodToken || sandboxToken) {
+      backgroundSyncEngine.updateTokens(prodToken, sandboxToken, celigoStack);
+    }
+    return res.json({ success: true, status: backgroundSyncEngine.getStatus() });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Trigger Instant Server Background Sync Cycle
+apiRouter.post('/background-sync/trigger', async (req: Request, res: Response) => {
+  try {
+    await backgroundSyncEngine.runSyncNow();
+    return res.json({ success: true, status: backgroundSyncEngine.getStatus() });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+

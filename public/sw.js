@@ -68,9 +68,57 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// Web Push Event Handler for 24/7 Mobile/Desktop Native OS Alerts
+self.addEventListener('push', (event) => {
+  let data = {
+    title: '⚠️ Celigo Integration Alert',
+    body: 'New integration error detected. Open Gappify Hub to inspect.',
+    url: '/?tab=errors'
+  };
+
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (e) {
+      data.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: data.body || 'Unresolved Celigo errors require attention.',
+    icon: data.icon || '/favicon-32x32.png',
+    badge: '/favicon-16x16.png',
+    tag: data.tag || 'celigo-bg-alert',
+    renotify: true,
+    vibrate: [200, 100, 200],
+    data: { url: data.url || '/?tab=errors' },
+    actions: [
+      { action: 'open', title: 'Open Hub' },
+      { action: 'dismiss', title: 'Dismiss' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || '⚠️ Celigo Integration Alert', options)
+  );
+});
+
+// Periodic Background Sync Event Handler (Chrome / Android PWA)
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'celigo-background-sync') {
+    event.waitUntil(
+      fetch('/api/background-sync/trigger', { method: 'POST' }).catch((err) => {
+        console.warn('SW Periodic sync trigger error:', err);
+      })
+    );
+  }
+});
+
 // Notification click handling
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  if (event.action === 'dismiss') return;
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       if (clientList.length > 0) {
