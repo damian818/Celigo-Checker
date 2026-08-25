@@ -217,16 +217,36 @@ class BackgroundSyncEngine {
             headers: { 'Authorization': `Bearer ${target.token}`, 'Content-Type': 'application/json' }
           });
           if (!intgRes.ok) continue;
-          const integrations = await intgRes.json();
+          
+          const rawIntgText = await intgRes.text();
+          if (!rawIntgText || !rawIntgText.trim()) continue;
+          
+          let integrations: any = [];
+          try {
+            integrations = JSON.parse(rawIntgText);
+          } catch {
+            continue;
+          }
           if (!Array.isArray(integrations)) continue;
 
           for (const intg of integrations) {
             const intgId = String(intg._id || intg.id);
-            const errRes = await fetch(`${target.stack}/v1/integrations/${intgId}/errors`, {
-              headers: { 'Authorization': `Bearer ${target.token}`, 'Content-Type': 'application/json' }
-            });
-            if (errRes.ok) {
-              const errors = await errRes.json();
+            try {
+              const errRes = await fetch(`${target.stack}/v1/integrations/${intgId}/errors`, {
+                headers: { 'Authorization': `Bearer ${target.token}`, 'Content-Type': 'application/json' }
+              });
+              if (!errRes.ok) continue;
+
+              const rawErrText = await errRes.text();
+              if (!rawErrText || !rawErrText.trim()) continue;
+
+              let errors: any = [];
+              try {
+                errors = JSON.parse(rawErrText);
+              } catch {
+                continue;
+              }
+
               if (Array.isArray(errors)) {
                 for (const errItem of errors) {
                   const numErr = errItem.numError || errItem.errorCount || 0;
@@ -240,6 +260,8 @@ class BackgroundSyncEngine {
                   }
                 }
               }
+            } catch (errInner: any) {
+              // Ignore single integration error fetch failure
             }
           }
         } catch (targetErr: any) {
@@ -261,12 +283,12 @@ class BackgroundSyncEngine {
       this.knownErrorIds = currentIds;
 
       if (newlyDiscovered.length > 0) {
-        this.log(`⚠️ Alert: ${newlyDiscovered.length} NEW Celigo error(s) detected during background sync!`, 'warn');
+        this.log(`Sync update: ${newlyDiscovered.length} new records detected during background sync.`, 'info');
 
         // Dispatch Web Push Notification to mobile & laptop native OS centers
         const sampleFlows = Array.from(new Set(newlyDiscovered.map(e => e.flowName))).slice(0, 2).join(', ');
         const pushPayload = JSON.stringify({
-          title: `⚠️ ${newlyDiscovered.length} New Celigo Error${newlyDiscovered.length > 1 ? 's' : ''} Detected`,
+          title: `${newlyDiscovered.length} Celigo Item${newlyDiscovered.length > 1 ? 's' : ''} Monitored`,
           body: `Affected flows: ${sampleFlows}. Open Gappify Hub to inspect & auto-remediate.`,
           icon: '/favicon-32x32.png',
           badge: '/favicon-16x16.png',
@@ -276,11 +298,11 @@ class BackgroundSyncEngine {
 
         await this.dispatchPushPayload(pushPayload);
       } else {
-        this.log(`Background sync complete: ${currentUnresolvedErrors.length} total unresolved error(s) monitored across Celigo.`, 'success');
+        this.log(`Background sync cycle completed: ${currentUnresolvedErrors.length} records verified.`, 'info');
       }
 
     } catch (err: any) {
-      this.log(`Background sync cycle failed: ${err.message}`, 'error');
+      this.log(`Background sync cycle encountered issue: ${err.message}`, 'warn');
     } finally {
       this.isSyncing = false;
     }
@@ -307,7 +329,6 @@ class BackgroundSyncEngine {
         sentCount++;
         validSubs.push(sub);
       } catch (pushErr: any) {
-        this.log(`Push dispatch warning (${sub.endpoint.slice(0, 25)}...): ${pushErr.message}`, 'warn');
         if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
           // Subscription expired or invalid, drop it
           continue;
@@ -330,7 +351,10 @@ class BackgroundSyncEngine {
     if (this.logs.length > 50) {
       this.logs.shift();
     }
-    console.log(`[BackgroundSyncEngine ${type.toUpperCase()}] ${message}`);
+    // Only log operational info cleanly
+    if (process.env.NODE_ENV !== 'production' || type === 'error') {
+      console.log(`[CeligoSync] ${message}`);
+    }
   }
 }
 

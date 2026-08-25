@@ -1180,6 +1180,11 @@ export default function App() {
 
         {activeTab === 'analytics' && (
           <AnalyticsDashboardView
+            errors={errors}
+            flows={flows}
+            integrations={integrations}
+            onTriggerSync={() => syncCeligoData(true)}
+            isSyncing={isSyncing}
             onSwitchTab={setActiveTab}
           />
         )}
@@ -1188,6 +1193,8 @@ export default function App() {
           <McpConsoleView
             flows={flows}
             errors={errors}
+            integrations={integrations}
+            tokens={getStoredTokens()}
             onRunInCli={handleRunInCli}
             onOpenJiraModal={(err) => setSelectedErrorForJira(err)}
             onOpenRemediationModal={(err) => setSelectedErrorForRemediation(err)}

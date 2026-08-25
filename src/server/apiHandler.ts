@@ -991,7 +991,9 @@ apiRouter.post('/celigo/test-connection', async (req: Request, res: Response) =>
         headers: { 'Authorization': `Bearer ${prodToken.trim()}`, 'Content-Type': 'application/json' }
       });
       if (resp.ok) {
-        const data = await resp.json();
+        const rawText = await resp.text();
+        let data: any = null;
+        try { if (rawText && rawText.trim()) data = JSON.parse(rawText); } catch {}
         const count = Array.isArray(data) ? data.length : 1;
         results.prod = { connected: true, message: `Production token valid. Connected to Celigo (${count > 0 ? 'Verified' : 'Active'}).` };
       } else {
@@ -1008,7 +1010,9 @@ apiRouter.post('/celigo/test-connection', async (req: Request, res: Response) =>
         headers: { 'Authorization': `Bearer ${sandboxToken.trim()}`, 'Content-Type': 'application/json' }
       });
       if (resp.ok) {
-        const data = await resp.json();
+        const rawText = await resp.text();
+        let data: any = null;
+        try { if (rawText && rawText.trim()) data = JSON.parse(rawText); } catch {}
         const count = Array.isArray(data) ? data.length : 1;
         results.sandbox = { connected: true, message: `Sandbox token valid. Connected to Celigo (${count > 0 ? 'Verified' : 'Active'}).` };
       } else {
@@ -1055,7 +1059,16 @@ async function fetchAllCeligoPages(endpointUrl: string, token: string, maxPages 
         }
       }
 
-      const data = await response.json();
+      const rawText = await response.text();
+      if (!rawText || !rawText.trim()) {
+        break;
+      }
+      let data: any;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        break;
+      }
       const items = Array.isArray(data) ? data : (data.items || data.data || data.errors || data.flowErrors || []);
       
       if (!items || items.length === 0) {
@@ -1182,15 +1195,21 @@ apiRouter.get('/celigo/live-flows', async (req: Request, res: Response) => {
               headers: { 'Authorization': `Bearer ${target.token}`, 'Content-Type': 'application/json' }
             });
             if (intgErrRes.ok) {
-              const intgErrors = await intgErrRes.json();
-              if (Array.isArray(intgErrors)) {
-                intgErrors.forEach(ie => {
-                  const fId = ie._flowId;
-                  const errCnt = ie.numError || ie.errorCount || ie.numErrors || 0;
-                  if (fId && errCnt > 0) {
-                    flowErrorMap.set(String(fId), (flowErrorMap.get(String(fId)) || 0) + errCnt);
-                  }
-                });
+              const rawErrText = await intgErrRes.text();
+              if (rawErrText && rawErrText.trim()) {
+                let intgErrors: any = [];
+                try {
+                  intgErrors = JSON.parse(rawErrText);
+                } catch {}
+                if (Array.isArray(intgErrors)) {
+                  intgErrors.forEach(ie => {
+                    const fId = ie._flowId;
+                    const errCnt = ie.numError || ie.errorCount || ie.numErrors || 0;
+                    if (fId && errCnt > 0) {
+                      flowErrorMap.set(String(fId), (flowErrorMap.get(String(fId)) || 0) + errCnt);
+                    }
+                  });
+                }
               }
             }
           } catch {
@@ -1315,7 +1334,13 @@ apiRouter.get('/celigo/live-errors', async (req: Request, res: Response) => {
               headers: { 'Authorization': `Bearer ${target.token}`, 'Content-Type': 'application/json' }
             });
             if (intgErrRes.ok) {
-              const intgErrors = await intgErrRes.json();
+              const rawErrText = await intgErrRes.text();
+              let intgErrors: any = [];
+              if (rawErrText && rawErrText.trim()) {
+                try {
+                  intgErrors = JSON.parse(rawErrText);
+                } catch {}
+              }
               if (Array.isArray(intgErrors)) {
                 for (const ie of intgErrors) {
                   const errCnt = ie.numError || ie.errorCount || ie.numErrors || 0;
